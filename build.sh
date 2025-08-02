@@ -1,7 +1,11 @@
 #!/bin/bash
 
-CXX=g++
-ENTRY=main.cc
-TARGET=minesweeper
+set -exuo pipefail
 
-$CXX -Wall -Wpedantic -std=c++17 $ENTRY -o $TARGET
+g++ -g -Wall -Wpedantic -std=c++17 codegen.cc -o codegen
+
+for f in *.pat ; do
+    ./codegen "$f"
+done
+
+g++ -g -Wall -Wpedantic -std=c++17 main.cc -o minesweeper

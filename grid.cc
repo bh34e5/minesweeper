@@ -11,15 +11,15 @@
 #include <sys/types.h>
 
 enum CellType {
-    number,
-    mine,
+    ct_number,
+    ct_mine,
 };
 
 enum CellDisplayType {
-    hidden,
-    value,
-    flag,
-    maybe_flag,
+    cdt_hidden,
+    cdt_value,
+    cdt_flag,
+    cdt_maybe_flag,
 };
 
 struct Cell {
@@ -35,8 +35,7 @@ struct Grid {
     };
 
     struct Neighbor {
-        size_t row;
-        size_t col;
+        Location loc;
         Ref<Cell> cell;
     };
 
@@ -62,8 +61,8 @@ struct Grid {
                 return Op<Neighbor>::empty();
             }
 
-            ::Location n = neighbor_op.get();
-            return Neighbor{n.row, n.col, this->grid[n.row][n.col]};
+            ::Location loc = neighbor_op.get();
+            return Neighbor{loc, this->grid[loc.row][loc.col]};
         }
     };
 
@@ -73,9 +72,9 @@ struct Grid {
     explicit Grid(Slice<Cell> cells, Dims dims) : cells(cells), dims(dims) {}
 
     inline auto operator[](size_t row) -> Row {
-        size_t row_start = row * this->dims.width;
-        size_t row_end = row_start + this->dims.width;
-        return Row{this->cells.slice(row_start, row_end)};
+        size_t row_s = (row + 0) * this->dims.width;
+        size_t row_e = (row + 1) * this->dims.width;
+        return Row{this->cells.slice(row_s, row_e)};
     }
 
     inline auto rowIterator() -> RowIterator { return RowIterator{*this, 0}; };
@@ -84,45 +83,46 @@ struct Grid {
         return NeighborIterator{
             *this, ::NeighborIterator{Location{row, col}, this->dims, 0}};
     };
+
+    inline auto neighborIterator(Location loc) -> NeighborIterator {
+        return NeighborIterator{*this, ::NeighborIterator{loc, this->dims, 0}};
+    };
 };
 
-auto uncoverSelfAndNeighbors(Grid grid, size_t row, size_t col) -> void {
-    Cell &cell = grid[row][col];
-    if (cell.display_type != CellDisplayType::hidden) {
+auto uncoverSelfAndNeighbors(Grid grid, Location loc) -> void {
+    Cell &cell = grid[loc.row][loc.col];
+    if (cell.display_type != CellDisplayType::cdt_hidden) {
         return;
     }
 
     switch (cell.type) {
-    case number: {
-        cell.display_type = CellDisplayType::value;
+    case ct_number: {
+        cell.display_type = CellDisplayType::cdt_value;
         if (cell.number == 0) {
             auto neighbor_op = Op<Grid::Neighbor>::empty();
-            auto neighbor_it = grid.neighborIterator(row, col);
+            auto neighbor_it = grid.neighborIterator(loc);
             while ((neighbor_op = neighbor_it.next()).valid) {
                 Grid::Neighbor neighbor = neighbor_op.get();
-                uncoverSelfAndNeighbors(grid, neighbor.row, neighbor.col);
+                uncoverSelfAndNeighbors(grid, neighbor.loc);
             }
         }
     } break;
-    case mine: {
+    case ct_mine: {
         // keep it hidden
     } break;
     }
 }
 
-auto generateGrid(size_t width, size_t height, size_t mine_count,
-                  size_t start_r, size_t start_c) -> Op<Grid> {
-    assert((width * height) > 0 && "Invalid dimensions");
-    assert(start_r < width && "Invalid start row");
-    assert(start_c < height && "Invalid start column");
+auto generateGrid(Dims dims, size_t mine_count, Location start_loc)
+    -> Op<Grid> {
+    size_t cell_count = dims.area();
+    assert(cell_count > 0 && "Invalid dimensions");
+    assert(start_loc.row < dims.width && "Invalid start row");
+    assert(start_loc.col < dims.height && "Invalid start column");
 
-    Location start_loc{start_r, start_c};
-    Dims dims{width, height};
     size_t neighbor_count = neighborCount(start_loc, dims);
-    assert(mine_count < ((width * height) - neighbor_count) &&
-           "Invalid mine count");
+    assert(mine_count < (cell_count - neighbor_count) && "Invalid mine count");
 
-    size_t cell_count = width * height;
     Cell *cells = new Cell[cell_count];
     if (cells == nullptr) {
         return Op<Grid>::empty();
@@ -132,49 +132,49 @@ auto generateGrid(size_t width, size_t height, size_t mine_count,
 
     // initialize cells
     for (Cell &cell : grid.cells) {
-        cell = Cell{CellType::number, CellDisplayType::hidden, 0};
+        cell = Cell{CellType::ct_number, CellDisplayType::cdt_hidden, 0};
     }
 
     // fill mines
     size_t remaining_mines = mine_count;
     while (remaining_mines > 0) {
         size_t ind = rand() % cell_count;
-        size_t row = ind / width;
-        size_t col = ind % width;
+        size_t row = ind / dims.width;
+        size_t col = ind % dims.width;
 
         Cell &cur = grid[row][col];
 
-        bool current_mine = cur.type == CellType::mine;
-        bool current_start = row == start_r && col == start_c;
-        bool current_neighbor = isNeighbor(row, col, start_r, start_c);
+        bool current_mine = cur.type == CellType::ct_mine;
+        bool current_start = row == start_loc.row && col == start_loc.col;
+        bool current_neighbor = isNeighbor(Location{row, col}, start_loc);
 
         if (current_mine || current_start || current_neighbor) {
             continue;
         }
 
-        cur.type = CellType::mine;
+        cur.type = CellType::ct_mine;
         --remaining_mines;
 
         auto neighbor_op = Op<Grid::Neighbor>::empty();
         auto neighbor_it = grid.neighborIterator(row, col);
         while ((neighbor_op = neighbor_it.next()).valid) {
             Cell &cell = neighbor_op.get().cell;
-            if (cell.type == CellType::number) {
+            if (cell.type == CellType::ct_number) {
                 ++cell.number;
             }
         }
     }
 
     // uncover initial click
-    uncoverSelfAndNeighbors(grid, start_r, start_c);
+    uncoverSelfAndNeighbors(grid, start_loc);
 
     return grid;
 }
 
 auto gridSolved(Grid grid) -> bool {
     for (Cell cell : grid.cells) {
-        if (cell.type == CellType::number &&
-            cell.display_type != CellDisplayType::value)
+        if (cell.type == CellType::ct_number &&
+            cell.display_type != CellDisplayType::cdt_value)
             return false;
     }
     return true;
@@ -182,14 +182,14 @@ auto gridSolved(Grid grid) -> bool {
 
 auto printCellValue(Cell cell) -> void {
     switch (cell.type) {
-    case number: {
+    case ct_number: {
         if (cell.number == 0) {
             printf(" ");
         } else {
             printf("%c", cell.number + '0'); // number must be 0-8
         }
     } break;
-    case mine: {
+    case ct_mine: {
         printf("*");
     } break;
     }
@@ -254,16 +254,16 @@ auto printGridExternal(Grid grid) -> void {
             printf(" ");
 
             switch (cell.display_type) {
-            case hidden: {
+            case cdt_hidden: {
                 printf("_");
             } break;
-            case value: {
+            case cdt_value: {
                 printCellValue(cell);
             } break;
-            case flag: {
+            case cdt_flag: {
                 printf("F");
             } break;
-            case maybe_flag: {
+            case cdt_maybe_flag: {
                 printf("?");
             } break;
             }

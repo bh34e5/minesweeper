@@ -1,6 +1,10 @@
+#include "dirutils.cc"
 #include "grid.cc"
 #include "op.cc"
 #include "slice.cc"
+
+// auto generated
+#include "pat_121.cc"
 
 #include <stdlib.h>
 #include <sys/types.h>
@@ -36,8 +40,8 @@ struct GridSolver {
 
 auto flag_remaining_cells(Grid grid, size_t row, size_t col) -> bool {
     Cell cur = grid[row][col];
-    if (cur.display_type != CellDisplayType::value ||
-        cur.type != CellType::number) {
+    if (cur.display_type != CellDisplayType::cdt_value ||
+        cur.type != CellType::ct_number) {
         return false;
     }
 
@@ -53,9 +57,9 @@ auto flag_remaining_cells(Grid grid, size_t row, size_t col) -> bool {
     auto neighbor_it = grid.neighborIterator(row, col);
     while ((neighbor_op = neighbor_it.next()).valid) {
         Cell cell = neighbor_op.get().cell;
-        if (cell.display_type == CellDisplayType::hidden) {
+        if (cell.display_type == CellDisplayType::cdt_hidden) {
             ++hidden_count;
-        } else if (cell.display_type == CellDisplayType::flag) {
+        } else if (cell.display_type == CellDisplayType::cdt_flag) {
             ++flag_count;
         }
     }
@@ -69,8 +73,8 @@ auto flag_remaining_cells(Grid grid, size_t row, size_t col) -> bool {
         while ((neighbor_op = neighbor_it.next()).valid) {
             Grid::Neighbor neighbor = neighbor_op.get();
             Cell &cell = neighbor.cell;
-            if (cell.display_type == CellDisplayType::hidden) {
-                cell.display_type = CellDisplayType::flag;
+            if (cell.display_type == CellDisplayType::cdt_hidden) {
+                cell.display_type = CellDisplayType::cdt_flag;
                 did_work = true;
             }
         }
@@ -82,8 +86,8 @@ auto flag_remaining_cells(Grid grid, size_t row, size_t col) -> bool {
 
 auto show_hidden_cells(Grid grid, size_t row, size_t col) -> bool {
     Cell cur = grid[row][col];
-    if (cur.display_type != CellDisplayType::value ||
-        cur.type != CellType::number) {
+    if (cur.display_type != CellDisplayType::cdt_value ||
+        cur.type != CellType::ct_number) {
         return false;
     }
 
@@ -98,7 +102,7 @@ auto show_hidden_cells(Grid grid, size_t row, size_t col) -> bool {
     auto neighbor_it = grid.neighborIterator(row, col);
     while ((neighbor_op = neighbor_it.next()).valid) {
         Cell cell = neighbor_op.get().cell;
-        if (cell.display_type == CellDisplayType::flag) {
+        if (cell.display_type == CellDisplayType::cdt_flag) {
             ++flag_count;
         }
     }
@@ -112,8 +116,8 @@ auto show_hidden_cells(Grid grid, size_t row, size_t col) -> bool {
         while ((neighbor_op = neighbor_it.next()).valid) {
             Grid::Neighbor neighbor = neighbor_op.get();
             Cell cell = neighbor.cell;
-            if (cell.display_type == CellDisplayType::hidden) {
-                uncoverSelfAndNeighbors(grid, neighbor.row, neighbor.col);
+            if (cell.display_type == CellDisplayType::cdt_hidden) {
+                uncoverSelfAndNeighbors(grid, neighbor.loc);
                 did_work = true;
             }
         }
@@ -126,14 +130,15 @@ auto show_hidden_cells(Grid grid, size_t row, size_t col) -> bool {
 int main() {
     srand(0);
 
-    Op<Grid> g_op = generateGrid(9, 18, 34, 5, 5);
+    Op<Grid> g_op = generateGrid(Dims{9, 18}, 34, Location{5, 5});
     if (!g_op.valid) {
         return 1;
     }
 
     Grid grid = g_op.get();
     GridSolver::Rule rules[] = {GridSolver::Rule{&flag_remaining_cells},
-                                GridSolver::Rule{&show_hidden_cells}};
+                                GridSolver::Rule{&show_hidden_cells},
+                                GridSolver::Rule{&pat_121}};
     GridSolver solver{Slice<GridSolver::Rule>{rules, LEN(rules)}};
 
     bool is_solvable = solver.solvable(grid);

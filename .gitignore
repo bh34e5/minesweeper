@@ -1,2 +1,5 @@
 minesweeper
+minesweeper.dSYM/
+codegen
+codegen.dSYM/
 .ccls

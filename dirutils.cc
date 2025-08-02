@@ -103,6 +103,8 @@ struct Location {
 struct Dims {
     size_t width;
     size_t height;
+
+    inline auto area() -> size_t { return this->width * this->height; }
 };
 
 auto neighborOp(Location loc, Dims dims, Dir dir) -> Op<Location> {
@@ -127,8 +129,8 @@ inline auto neighbor(Location loc, Dims dims, Dir dir) -> Location {
     return neighborOp(loc, dims, dir).get();
 }
 
-inline auto isNeighbor(size_t r1, size_t c1, size_t r2, size_t c2) -> bool {
-    return (absDiff(r1, r2) <= 1) && (absDiff(c1, c2) <= 1);
+inline auto isNeighbor(Location l1, Location l2) -> bool {
+    return (absDiff(l1.row, l2.row) <= 1) && (absDiff(l1.col, l2.col) <= 1);
 }
 
 struct NeighborIterator {

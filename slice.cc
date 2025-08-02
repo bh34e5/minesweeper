@@ -21,9 +21,13 @@ template <typename T> struct Slice {
         return this->ptr + idx;
     }
 
+    auto slice(size_t start) -> Slice<T> {
+        return this->slice(start, this->len);
+    }
+
     auto slice(size_t start, size_t end) -> Slice<T> {
         assert(start <= end && "Invalid slice range");
-        assert(start < this->len && "Out of bounds start access");
+        assert(start <= this->len && "Out of bounds start access");
         assert(end <= this->len && "Out of bounds end access");
 
         size_t slice_len = end - start;

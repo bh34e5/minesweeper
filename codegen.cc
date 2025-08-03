@@ -1,22 +1,12 @@
 #include "dirutils.cc"
 #include "op.cc"
 #include "slice.cc"
+#include "strslice.cc"
 
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <sys/types.h>
-
-typedef Slice<char const> StrSlice;
-
-auto str_slice(char const *s) -> StrSlice { return StrSlice{s, strlen(s)}; }
-auto str_slice(char const *s, size_t len) -> StrSlice {
-    return StrSlice{s, len};
-}
-
-#define STR_SLICE(s) (str_slice(s, sizeof(s) - 1))
-#define STR_ARGS(ss) (int)ss.len, ss.ptr
 
 static StrSlice PAT_SUFFIX = STR_SLICE(".pat");
 static StrSlice OUT_PREFIX = STR_SLICE("pat_");
@@ -52,21 +42,6 @@ auto getContents(char const *filename) -> Op<StrSlice> {
     fclose(f);
 
     return StrSlice{ptr, file_len};
-}
-
-auto endsWith(StrSlice haystack, StrSlice needle) -> bool {
-    if (haystack.len < needle.len) {
-        return false;
-    }
-
-    size_t offset = haystack.len - needle.len;
-    for (size_t i = 0; i < needle.len; ++i) {
-        if (haystack[offset + i] != needle[i]) {
-            return false;
-        }
-    }
-
-    return true;
 }
 
 auto getOutName(char const *in_name) -> char const * {

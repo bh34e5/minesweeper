@@ -2,6 +2,7 @@
 
 #include "op.cc"
 
+#include <assert.h>
 #include <sys/types.h>
 
 inline auto opDec(size_t v) -> Op<size_t> {
@@ -42,6 +43,7 @@ auto dirNorthward(Dir dir) -> bool {
         return false;
     }
     }
+    assert(0 && "Unreachable");
 }
 
 auto dirSouthward(Dir dir) -> bool {
@@ -59,6 +61,7 @@ auto dirSouthward(Dir dir) -> bool {
         return false;
     }
     }
+    assert(0 && "Unreachable");
 }
 
 auto dirEastward(Dir dir) -> bool {
@@ -76,6 +79,7 @@ auto dirEastward(Dir dir) -> bool {
         return false;
     }
     }
+    assert(0 && "Unreachable");
 }
 
 auto dirWestward(Dir dir) -> bool {
@@ -93,6 +97,7 @@ auto dirWestward(Dir dir) -> bool {
         return false;
     }
     }
+    assert(0 && "Unreachable");
 }
 
 struct Location {

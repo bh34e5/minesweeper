@@ -93,6 +93,7 @@ enum PatternCellType {
     pct_any,
     pct_number,
     pct_literal,
+    pct_not_flag,
     pct_flag,
     pct_execute,
 };
@@ -122,6 +123,7 @@ enum TokenType {
     tt_any,
     tt_number,
     tt_literal,
+    tt_not_flag,
     tt_flag,
     tt_execute,
     tt_newline,
@@ -152,6 +154,9 @@ auto nextToken(StrSlice contents) -> TokenResponse {
     } break;
     case '_': {
         return TokenResponse{contents.slice(1), Token{TokenType::tt_any}};
+    } break;
+    case 'f': {
+        return TokenResponse{contents.slice(1), Token{TokenType::tt_not_flag}};
     } break;
     case 'F': {
         return TokenResponse{contents.slice(1), Token{TokenType::tt_flag}};
@@ -268,6 +273,9 @@ auto readPattern(StrSlice contents) -> Pattern {
                 unsigned char number = token_resp.token.data - '0';
                 in_cell = PatternCell{PatternCellType::pct_literal, number};
             } break;
+            case tt_not_flag: {
+                in_cell = PatternCell{PatternCellType::pct_not_flag};
+            } break;
             case tt_flag:
             case tt_execute:
             case tt_newline:
@@ -301,6 +309,9 @@ auto readPattern(StrSlice contents) -> Pattern {
             case tt_literal: {
                 unsigned char number = token_resp.token.data - '0';
                 out_cell = PatternCell{PatternCellType::pct_literal, number};
+            } break;
+            case tt_not_flag: {
+                out_cell = PatternCell{PatternCellType::pct_not_flag};
             } break;
             case tt_flag: {
                 out_cell = PatternCell{PatternCellType::pct_flag};
@@ -340,23 +351,13 @@ auto readPattern(StrSlice contents) -> Pattern {
     return Pattern{Shape{dims, cells}, Slice<Action>{actions_ptr, actions_len}};
 }
 
-auto writeFunction(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
-    fprintf(out, "#pragma once\n");
-    fprintf(out, "\n");
-    fprintf(out, "#include \"dirutils.cc\"\n");
-    fprintf(out, "#include \"grid.cc\"\n");
-    fprintf(out, "\n");
-    fprintf(out, "#include <sys/types.h>\n");
-    fprintf(out, "\n");
-    fprintf(out, "auto %.*s(Grid grid, size_t row, size_t col) -> bool {\n",
-            STR_ARGS(out_fn));
-
-    // begin fn body
-
-    Dims dims = pattern.shape.dims;
-
+auto writeFunctionHeader(FILE *out, StrSlice out_fn, Dims dims, size_t num,
+                         char suffix) -> void {
+    fprintf(out,
+            "auto %.*s_%zu%c(Grid grid, size_t row, size_t col) -> bool {\n",
+            STR_ARGS(out_fn), num, suffix);
     fprintf(out, "    size_t pat_width = %zu;\n", dims.width);
-    fprintf(out, "    size_t pat_height = %zu;\n", dims.width);
+    fprintf(out, "    size_t pat_height = %zu;\n", dims.height);
     fprintf(out, "\n");
     fprintf(out, "    if ((col + pat_width) > grid.dims.width) {\n");
     fprintf(out, "        return false;\n");
@@ -372,6 +373,146 @@ auto writeFunction(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
                     r, c, r, c);
         }
     }
+}
+
+auto writePatternMatchCell(FILE *out, PatternCell cell, Location loc) -> void {
+    switch (cell.type) {
+    case pct_any: {
+    } break;
+    case pct_number: {
+        fprintf(out,
+                "    if (c_%zu_%zu.display_type != "
+                "CellDisplayType::cdt_value ||\n",
+                loc.row, loc.col);
+        fprintf(out, "        c_%zu_%zu.type != CellType::ct_number) {\n",
+                loc.row, loc.col);
+        fprintf(out, "        return false;\n");
+        fprintf(out, "    }\n");
+        fprintf(out, "\n");
+    } break;
+    case pct_literal: {
+        fprintf(out,
+                "    if (c_%zu_%zu.display_type != "
+                "CellDisplayType::cdt_value ||\n",
+                loc.row, loc.col);
+        fprintf(out,
+                "        c_%zu_%zu.type != CellType::ct_number || "
+                "c_%zu_%zu.number != %d) {\n",
+                loc.row, loc.col, loc.row, loc.col, cell.number);
+        fprintf(out, "        return false;\n");
+        fprintf(out, "    }\n");
+        fprintf(out, "\n");
+    } break;
+    case pct_not_flag: {
+        fprintf(out,
+                "    if (c_%zu_%zu.display_type == "
+                "CellDisplayType::cdt_flag) {\n",
+                loc.row, loc.col);
+        fprintf(out, "        return false;\n");
+        fprintf(out, "    }\n");
+        fprintf(out, "\n");
+    } break;
+    case pct_flag:
+    case pct_execute: {
+        assert(0 && "Bad pattern");
+    } break;
+    }
+}
+
+auto writeActionCell(FILE *out, PatternCell pre_cond, PatternCell post_cond,
+                     Location loc) -> void {
+    switch (post_cond.type) {
+    case pct_flag: {
+        fprintf(out,
+                "    if (c_%zu_%zu.display_type == "
+                "CellDisplayType::cdt_hidden ||\n",
+                loc.row, loc.col);
+        fprintf(out,
+                "        c_%zu_%zu.display_type == "
+                "CellDisplayType::cdt_maybe_flag) {\n",
+                loc.row, loc.col);
+        fprintf(out,
+                "        c_%zu_%zu.display_type = CellDisplayType::cdt_flag;\n",
+                loc.row, loc.col);
+        fprintf(out, "        did_work = true;\n");
+        fprintf(out, "    }\n");
+        fprintf(out, "\n");
+    } break;
+    case pct_execute: {
+        fprintf(out,
+                "    if (c_%zu_%zu.display_type == "
+                "CellDisplayType::cdt_maybe_flag ||\n",
+                loc.row, loc.col);
+        fprintf(out,
+                "        c_%zu_%zu.display_type == "
+                "CellDisplayType::cdt_hidden) {\n",
+                loc.row, loc.col);
+        fprintf(out,
+                "        // mark as hidden to remove possible maybe_flag\n");
+        fprintf(out,
+                "        c_%zu_%zu.display_type = "
+                "CellDisplayType::cdt_hidden;\n",
+                loc.row, loc.col);
+        fprintf(out,
+                "        uncoverSelfAndNeighbors(grid, Location{row + %zu, "
+                "col + %zu});\n",
+                loc.row, loc.col);
+        fprintf(out, "        did_work = true;\n");
+        fprintf(out, "    }\n");
+        fprintf(out, "\n");
+    } break;
+    case pct_any:
+    case pct_number:
+    case pct_not_flag:
+    case pct_literal: {
+        assert(0 && "Bad pattern");
+    } break;
+    }
+}
+
+auto idDimAdj(Dims dims) -> Dims { return dims; }
+auto dimAdj90(Dims dims) -> Dims { return Dims{dims.height, dims.width}; }
+
+auto idLocAdj(Dims dims, Location loc) -> Location { return loc; }
+
+auto locAdj90n(Dims dims, Location loc) -> Location {
+    return Location{loc.col, dims.height - 1 - loc.row};
+}
+
+auto locAdj180n(Dims dims, Location loc) -> Location {
+    return Location{dims.height - 1 - loc.row, dims.width - 1 - loc.col};
+}
+
+auto locAdj270n(Dims dims, Location loc) -> Location {
+    return Location{dims.width - 1 - loc.col, loc.row};
+}
+
+auto locAdj0r(Dims dims, Location loc) -> Location {
+    return Location{loc.row, dims.width - 1 - loc.col};
+}
+
+auto locAdj90r(Dims dims, Location loc) -> Location {
+    return Location{loc.col, loc.row};
+}
+
+auto locAdj180r(Dims dims, Location loc) -> Location {
+    return Location{dims.height - 1 - loc.row, loc.col};
+}
+
+auto locAdj270r(Dims dims, Location loc) -> Location {
+    return Location{dims.width - 1 - loc.col, dims.height - 1 - loc.row};
+}
+
+typedef auto(DimsAdj)(Dims dims) -> Dims;
+typedef auto(LocAdj)(Dims dims, Location loc) -> Location;
+
+auto writeFunctionGeneric(FILE *out, StrSlice out_fn, Pattern pattern,
+                          size_t num, char suffix, DimsAdj *dims_adjuster,
+                          LocAdj *loc_adjuster) -> void {
+    Dims dims = pattern.shape.dims;
+    Dims dims_adj = dims_adjuster(dims);
+
+    writeFunctionHeader(out, out_fn, dims_adj, num, suffix);
 
     fprintf(out, "\n");
     fprintf(out, "    // check pattern match\n");
@@ -379,40 +520,9 @@ auto writeFunction(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
 
     for (size_t r = 0; r < dims.height; ++r) {
         for (size_t c = 0; c < dims.width; ++c) {
+            Location loc_adj = loc_adjuster(dims, Location{r, c});
             PatternCell cell = pattern.shape.cells[r * dims.width + c];
-            switch (cell.type) {
-            case pct_any: {
-            } break;
-            case pct_number: {
-                fprintf(out,
-                        "    if (c_%zu_%zu.display_type != "
-                        "CellDisplayType::cdt_value ||\n",
-                        r, c);
-                fprintf(out,
-                        "        c_%zu_%zu.type != CellType::ct_number) {\n", r,
-                        c);
-                fprintf(out, "        return false;\n");
-                fprintf(out, "    }\n");
-                fprintf(out, "\n");
-            } break;
-            case pct_literal: {
-                fprintf(out,
-                        "    if (c_%zu_%zu.display_type != "
-                        "CellDisplayType::cdt_value ||\n",
-                        r, c);
-                fprintf(out,
-                        "        c_%zu_%zu.type != CellType::ct_number || "
-                        "c_%zu_%zu.number != %d) {\n",
-                        r, c, r, c, cell.number);
-                fprintf(out, "        return false;\n");
-                fprintf(out, "    }\n");
-                fprintf(out, "\n");
-            } break;
-            case pct_flag:
-            case pct_execute: {
-                assert(0 && "Bad pattern");
-            } break;
-            }
+            writePatternMatchCell(out, cell, loc_adj);
         }
     }
 
@@ -422,63 +532,93 @@ auto writeFunction(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
     fprintf(out, "\n");
 
     for (Action action : pattern.actions) {
-        size_t r = action.loc.row;
-        size_t c = action.loc.col;
-
-        switch (action.post_cond.type) {
-        case pct_flag: {
-            fprintf(out,
-                    "    if (c_%zu_%zu.display_type == "
-                    "CellDisplayType::cdt_hidden ||\n",
-                    r, c);
-            fprintf(out,
-                    "        c_%zu_%zu.display_type == "
-                    "CellDisplayType::cdt_maybe_flag) {\n",
-                    r, c);
-            fprintf(
-                out,
-                "        c_%zu_%zu.display_type = CellDisplayType::cdt_flag;\n",
-                r, c);
-            fprintf(out, "        did_work = true;\n");
-            fprintf(out, "    }\n");
-            fprintf(out, "\n");
-        } break;
-        case pct_execute: {
-            fprintf(out,
-                    "    if (c_%zu_%zu.display_type == "
-                    "CellDisplayType::cdt_maybe_flag ||\n",
-                    r, c);
-            fprintf(out,
-                    "        c_%zu_%zu.display_type == "
-                    "CellDisplayType::cdt_hidden) {\n",
-                    r, c);
-            fprintf(
-                out,
-                "        // mark as hidden to remove possible maybe_flag\n");
-            fprintf(out,
-                    "        c_%zu_%zu.display_type = "
-                    "CellDisplayType::cdt_hidden;\n",
-                    r, c);
-            fprintf(out,
-                    "        uncoverSelfAndNeighbors(grid, Location{row + %zu, "
-                    "col + %zu});\n",
-                    r, c);
-            fprintf(out, "        did_work = true;\n");
-            fprintf(out, "    }\n");
-            fprintf(out, "\n");
-        } break;
-        case pct_any:
-        case pct_number:
-        case pct_literal: {
-            assert(0 && "Bad pattern");
-        } break;
-        }
+        Location loc_adj = loc_adjuster(dims, action.loc);
+        writeActionCell(out, action.pre_cond, action.post_cond, loc_adj);
     }
 
     fprintf(out, "    return did_work;\n");
+    fprintf(out, "}\n");
+    fprintf(out, "\n");
+}
 
-    // end fn body
+auto writeFunction_0n(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
+    writeFunctionGeneric(out, out_fn, pattern, 0, 'n', &idDimAdj, &idLocAdj);
+}
 
+auto writeFunction_90n(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
+    writeFunctionGeneric(out, out_fn, pattern, 90, 'n', &dimAdj90, &locAdj90n);
+}
+
+auto writeFunction_180n(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
+    writeFunctionGeneric(out, out_fn, pattern, 180, 'n', &idDimAdj,
+                         &locAdj180n);
+}
+
+auto writeFunction_270n(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
+    writeFunctionGeneric(out, out_fn, pattern, 270, 'n', &dimAdj90,
+                         &locAdj270n);
+}
+
+auto writeFunction_0r(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
+    writeFunctionGeneric(out, out_fn, pattern, 0, 'r', &idDimAdj, &locAdj0r);
+}
+
+auto writeFunction_90r(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
+    writeFunctionGeneric(out, out_fn, pattern, 90, 'r', &dimAdj90, &locAdj90r);
+}
+
+auto writeFunction_180r(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
+    writeFunctionGeneric(out, out_fn, pattern, 180, 'r', &idDimAdj,
+                         &locAdj180r);
+}
+
+auto writeFunction_270r(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
+    writeFunctionGeneric(out, out_fn, pattern, 270, 'r', &dimAdj90,
+                         &locAdj270r);
+}
+
+auto writeFunction(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
+    fprintf(out, "#pragma once\n");
+    fprintf(out, "\n");
+    fprintf(out, "#include \"dirutils.cc\"\n");
+    fprintf(out, "#include \"grid.cc\"\n");
+    fprintf(out, "\n");
+    fprintf(out, "#include <sys/types.h>\n");
+    fprintf(out, "\n");
+
+    writeFunction_0n(out, out_fn, pattern);
+    writeFunction_90n(out, out_fn, pattern);
+    writeFunction_180n(out, out_fn, pattern);
+    writeFunction_270n(out, out_fn, pattern);
+
+    writeFunction_0r(out, out_fn, pattern);
+    writeFunction_90r(out, out_fn, pattern);
+    writeFunction_180r(out, out_fn, pattern);
+    writeFunction_270r(out, out_fn, pattern);
+
+    fprintf(out, "auto %.*s(Grid grid, size_t row, size_t col) -> bool {\n",
+            STR_ARGS(out_fn));
+    fprintf(out, "    bool did_work_0n = %.*s_0n(grid, row, col);\n",
+            STR_ARGS(out_fn));
+    fprintf(out, "    bool did_work_90n = %.*s_90n(grid, row, col);\n",
+            STR_ARGS(out_fn));
+    fprintf(out, "    bool did_work_180n = %.*s_180n(grid, row, col);\n",
+            STR_ARGS(out_fn));
+    fprintf(out, "    bool did_work_270n = %.*s_270n(grid, row, col);\n",
+            STR_ARGS(out_fn));
+    fprintf(out, "    bool did_work_0r = %.*s_0r(grid, row, col);\n",
+            STR_ARGS(out_fn));
+    fprintf(out, "    bool did_work_90r = %.*s_90r(grid, row, col);\n",
+            STR_ARGS(out_fn));
+    fprintf(out, "    bool did_work_180r = %.*s_180r(grid, row, col);\n",
+            STR_ARGS(out_fn));
+    fprintf(out, "    bool did_work_270r = %.*s_270r(grid, row, col);\n",
+            STR_ARGS(out_fn));
+    fprintf(out, "\n");
+    fprintf(out, "    return did_work_0n || did_work_180n || did_work_90n || "
+                 "did_work_270n ||\n");
+    fprintf(out, "           did_work_0r || did_work_180r || did_work_90r || "
+                 "did_work_270r;\n");
     fprintf(out, "}\n");
 }
 

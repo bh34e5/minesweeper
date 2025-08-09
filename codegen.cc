@@ -3,6 +3,7 @@
 #include "slice.cc"
 #include "strslice.cc"
 #include "tokens.cc"
+#include "utils.cc"
 
 #include <assert.h>
 #include <stdio.h>
@@ -61,7 +62,7 @@ auto getFileArgs(char const *in_name) -> FileArgs {
 
     if (!endsWith(in_slice, PAT_SUFFIX)) {
         fprintf(stderr, "Invalid in file %s\n", in_name);
-        exit(1);
+        EXIT(1);
     }
 
     size_t last_path_sep = lastIdxOf(in_slice, '/');
@@ -89,6 +90,15 @@ auto getFileArgs(char const *in_name) -> FileArgs {
                     out_slice, out_root, ptr};
 }
 
+struct Walls {
+    unsigned int north;
+    unsigned int east;
+    unsigned int south;
+    unsigned int west;
+
+    explicit Walls() : north(0), east(0), south(0), west(0) {}
+};
+
 enum PatternCellType {
     pct_any,
     pct_number,
@@ -103,11 +113,6 @@ struct PatternCell {
     unsigned char number;
 };
 
-struct Shape {
-    Dims dims;
-    Slice<PatternCell> cells;
-};
-
 struct Action {
     PatternCell pre_cond;
     PatternCell post_cond;
@@ -115,31 +120,99 @@ struct Action {
 };
 
 struct Pattern {
-    Shape shape;
+    Dims dims;
+    Walls walls;
+    Slice<PatternCell> cells;
     Slice<Action> actions;
 };
 
-auto readPattern(StrSlice contents) -> Pattern {
+auto readPattern(StrSlice _contents) -> Pattern {
     size_t width = 0;
     size_t height = 0;
 
     // read once to get dimensions and assert matching dimensions
 
+    bool first_char = true;
     bool first_part = true;
     bool first_row = true;
     size_t part_height = 0;
     size_t row_width = 0;
 
-    StrSlice cur_contents = contents;
+    Walls walls{};
+    StrSlice cur_contents{};
+    StrSlice pattern_start = _contents;
+
+    cur_contents = _contents;
     while (cur_contents.len > 0) {
-        TokenResponse token_resp = nextToken(cur_contents);
-        if (token_resp.token.type == TokenType::tt_newline ||
-            token_resp.token.type == TokenType::tt_eof) {
+        Token token_resp = nextToken(cur_contents);
+        switch (token_resp.type) {
+        case tt_wall: {
+            if (!first_char) {
+                fprintf(stderr, "Invalid wall directive\n");
+                EXIT(1);
+            }
+
+            Token next = nextToken(cur_contents);
+            do {
+                if (next.type != TokenType::tt_space) {
+                    fprintf(stderr, "Expected a space\n");
+                    EXIT(1);
+                }
+
+                unsigned int *target = nullptr;
+
+                Token target_tok = nextToken(cur_contents);
+                switch (target_tok.type) {
+                case tt_north: {
+                    target = &walls.north;
+                } break;
+                case tt_east: {
+                    target = &walls.east;
+                } break;
+                case tt_south: {
+                    target = &walls.south;
+                } break;
+                case tt_west: {
+                    target = &walls.west;
+                } break;
+                case tt_any:
+                case tt_number:
+                case tt_literal:
+                case tt_not_flag:
+                case tt_flag:
+                case tt_execute:
+                case tt_space:
+                case tt_newline:
+                case tt_wall:
+                case tt_eof: {
+                    fprintf(stderr, "Unexpected token type\n");
+                    EXIT(1);
+                } break;
+                }
+
+                expectToken(cur_contents, TokenType::tt_space);
+
+                Token number_tok =
+                    expectToken(cur_contents, TokenType::tt_literal);
+                assert(target != nullptr && "Unset target");
+                *target = number_tok.data;
+
+                next = nextToken(cur_contents);
+            } while (next.type != TokenType::tt_eof &&
+                     next.type != TokenType::tt_newline);
+
+            expectToken(cur_contents, TokenType::tt_newline);
+
+            // set the location we should use when reading pattern info
+            pattern_start = cur_contents;
+        } break;
+        case tt_newline:
+        case tt_eof: {
             if (row_width == 0) {
                 if (first_part) {
                     if (part_height == 0) {
                         fprintf(stderr, "Invalid dimensions (%d)\n", __LINE__);
-                        exit(1);
+                        EXIT(1);
                     }
 
                     height = part_height;
@@ -147,7 +220,7 @@ auto readPattern(StrSlice contents) -> Pattern {
                 } else {
                     if (part_height != height) {
                         fprintf(stderr, "Invalid dimensions (%d)\n", __LINE__);
-                        exit(1);
+                        EXIT(1);
                     }
                 }
 
@@ -161,41 +234,64 @@ auto readPattern(StrSlice contents) -> Pattern {
                 } else {
                     if (row_width != width) {
                         fprintf(stderr, "Invalid dimensions (%d)\n", __LINE__);
-                        exit(1);
+                        EXIT(1);
                     }
                 }
 
                 row_width = 0;
             }
-        } else {
+        } break;
+        case tt_literal: {
+            for (char c : token_resp.slice) {
+                if (!isMinesweeperNumber(c - '0')) {
+                    fprintf(stderr, "Invalid minesweeper number %c\n", c);
+                    EXIT(1);
+                }
+                ++row_width;
+            }
+        } break;
+        case tt_any:
+        case tt_number:
+        case tt_not_flag:
+        case tt_flag:
+        case tt_execute: {
             ++row_width;
+        } break;
+        case tt_north:
+        case tt_east:
+        case tt_south:
+        case tt_west:
+        case tt_space: {
+            fprintf(stderr, "Unexpected token\n");
+            EXIT(1);
+        } break;
         }
 
-        cur_contents = token_resp.next_slice;
+        first_char = false;
     }
 
     // read again to fill in pattern info
 
     Dims dims{width, height};
+
     PatternCell *cells_ptr = new PatternCell[dims.area()];
-    Action *actions_ptr = new Action[dims.area()];
+    Slice<PatternCell> cells{cells_ptr, dims.area()};
 
     size_t actions_len = 0;
-
-    Slice<PatternCell> cells{cells_ptr, dims.area()};
+    Action *actions_ptr = new Action[dims.area()];
 
     if (cells_ptr == nullptr || actions_ptr == nullptr) {
         fprintf(stderr, "Out of memory\n");
-        exit(1);
+        EXIT(1);
     }
 
-    cur_contents = contents;
+    cur_contents = pattern_start;
     for (size_t r = 0; r < dims.height; ++r) {
         for (size_t c = 0; c < dims.width; ++c) {
             PatternCell &in_cell = cells[r * dims.width + c];
 
-            TokenResponse token_resp = nextToken(cur_contents);
-            switch (token_resp.token.type) {
+            Token token_resp = nextToken(cur_contents);
+            switch (token_resp.type) {
             case tt_any: {
                 in_cell = PatternCell{PatternCellType::pct_any};
             } break;
@@ -203,36 +299,51 @@ auto readPattern(StrSlice contents) -> Pattern {
                 in_cell = PatternCell{PatternCellType::pct_number};
             } break;
             case tt_literal: {
-                unsigned char number = token_resp.token.data - '0';
-                in_cell = PatternCell{PatternCellType::pct_literal, number};
+                for (char ch : token_resp.slice) {
+                    unsigned char mnum = ch - '0';
+                    assert(isMinesweeperNumber(mnum) &&
+                           "Invalid minesweeper number");
+
+                    // cannot use in_cell here because we have multiple columns
+                    cells[r * dims.width + c] =
+                        PatternCell{PatternCellType::pct_literal, mnum};
+
+                    ++c;
+                }
+                --c; // we increment one too many times in the above loop
             } break;
             case tt_not_flag: {
                 in_cell = PatternCell{PatternCellType::pct_not_flag};
             } break;
             case tt_flag:
             case tt_execute:
+            case tt_space:
             case tt_newline:
+            case tt_wall:
+            case tt_north:
+            case tt_east:
+            case tt_south:
+            case tt_west:
             case tt_eof: {
                 fprintf(stderr, "Unexpected token type\n");
-                exit(1);
+                EXIT(1);
             } break;
             }
-            cur_contents = token_resp.next_slice;
         }
         // read new line
-        cur_contents = nextToken(cur_contents).next_slice;
+        expectToken(cur_contents, TokenType::tt_newline);
     }
 
     // read new line
-    cur_contents = nextToken(cur_contents).next_slice;
+    expectToken(cur_contents, TokenType::tt_newline);
 
     for (size_t r = 0; r < dims.height; ++r) {
         for (size_t c = 0; c < dims.width; ++c) {
             PatternCell in_cell = cells[r * dims.width + c];
             PatternCell out_cell{};
 
-            TokenResponse token_resp = nextToken(cur_contents);
-            switch (token_resp.token.type) {
+            Token token_resp = nextToken(cur_contents);
+            switch (token_resp.type) {
             case tt_any: {
                 out_cell = PatternCell{PatternCellType::pct_any};
             } break;
@@ -240,8 +351,24 @@ auto readPattern(StrSlice contents) -> Pattern {
                 out_cell = PatternCell{PatternCellType::pct_number};
             } break;
             case tt_literal: {
-                unsigned char number = token_resp.token.data - '0';
-                out_cell = PatternCell{PatternCellType::pct_literal, number};
+                for (char ch : token_resp.slice) {
+                    unsigned char mnum = ch - '0';
+                    assert(isMinesweeperNumber(mnum) &&
+                           "Invalid minesweeper number");
+
+                    in_cell = cells[r * dims.width + c];
+                    out_cell = PatternCell{PatternCellType::pct_literal, mnum};
+
+                    if (out_cell.type != in_cell.type ||
+                        (out_cell.type == PatternCellType::pct_literal &&
+                         out_cell.number != in_cell.number)) {
+                        fprintf(stderr, "Invalid action\n");
+                        EXIT(1);
+                    }
+
+                    ++c;
+                }
+                --c; // we increment one too many times in the above loop
             } break;
             case tt_not_flag: {
                 out_cell = PatternCell{PatternCellType::pct_not_flag};
@@ -252,10 +379,16 @@ auto readPattern(StrSlice contents) -> Pattern {
             case tt_execute: {
                 out_cell = PatternCell{PatternCellType::pct_execute};
             } break;
+            case tt_space:
             case tt_newline:
+            case tt_wall:
+            case tt_north:
+            case tt_east:
+            case tt_south:
+            case tt_west:
             case tt_eof: {
                 fprintf(stderr, "Unexpected token type\n");
-                exit(1);
+                EXIT(1);
             } break;
             }
 
@@ -270,18 +403,17 @@ auto readPattern(StrSlice contents) -> Pattern {
                     (out_cell.type == PatternCellType::pct_literal &&
                      out_cell.number != in_cell.number)) {
                     fprintf(stderr, "Invalid action\n");
-                    exit(1);
+                    EXIT(1);
                 }
             } break;
             }
-            cur_contents = token_resp.next_slice;
         }
         // read new line
-        cur_contents = nextToken(cur_contents).next_slice;
+        expectToken(cur_contents, TokenType::tt_newline);
     }
-    assert(nextToken(cur_contents).token.type == TokenType::tt_eof);
+    expectToken(cur_contents, TokenType::tt_eof);
 
-    return Pattern{Shape{dims, cells}, Slice<Action>{actions_ptr, actions_len}};
+    return Pattern{dims, walls, cells, Slice<Action>{actions_ptr, actions_len}};
 }
 
 auto writeStructDefinition(FILE *out, StrSlice out_fn, Dims dims) -> void {
@@ -400,10 +532,10 @@ auto writeCheckPatternFunction(FILE *out, StrSlice out_fn, Pattern pattern)
     fprintf(out, "    // check pattern match\n");
     fprintf(out, "\n");
 
-    Dims dims = pattern.shape.dims;
+    Dims dims = pattern.dims;
     for (size_t r = 0; r < dims.height; ++r) {
         for (size_t c = 0; c < dims.width; ++c) {
-            PatternCell cell = pattern.shape.cells[r * dims.width + c];
+            PatternCell cell = pattern.cells[r * dims.width + c];
             writePatternMatchCell(out, cell, Location{r, c});
         }
     }
@@ -537,7 +669,7 @@ auto writeFunction(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
     fprintf(out, "#include <sys/types.h>\n");
     fprintf(out, "\n");
 
-    Dims dims = pattern.shape.dims;
+    Dims dims = pattern.dims;
 
     writeStructDefinition(out, out_fn, dims);
     writeCheckPatternFunction(out, out_fn, pattern);
@@ -581,7 +713,7 @@ auto writeFunction(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
 int main(int argc, char const *argv[]) {
     if (argc != 2) {
         usage(argv[0]);
-        exit(1);
+        EXIT(1);
     }
 
     char const *in_name = argv[1];
@@ -590,7 +722,7 @@ int main(int argc, char const *argv[]) {
     Op<StrSlice> contents_op = getContents(in_name);
     if (!contents_op.valid) {
         fprintf(stderr, "Failed to read pattern file %s\n", in_name);
-        exit(1);
+        EXIT(1);
     }
 
     Pattern pattern = readPattern(contents_op.get());
@@ -599,7 +731,7 @@ int main(int argc, char const *argv[]) {
     FILE *out = fopen(out_name, "w");
     if (out == nullptr) {
         fprintf(stderr, "Failed to open output file %s\n", out_name);
-        exit(1);
+        EXIT(1);
     }
 
     writeFunction(out, file_args.out_root, pattern);

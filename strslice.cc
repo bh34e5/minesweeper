@@ -24,6 +24,20 @@ auto lastIdxOf(StrSlice haystack, char c) -> size_t {
     return idx;
 }
 
+auto startsWith(StrSlice haystack, StrSlice needle) -> bool {
+    if (haystack.len < needle.len) {
+        return false;
+    }
+
+    for (size_t i = 0; i < needle.len; ++i) {
+        if (haystack[i] != needle[i]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 auto endsWith(StrSlice haystack, StrSlice needle) -> bool {
     if (haystack.len < needle.len) {
         return false;

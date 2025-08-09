@@ -10,6 +10,7 @@ template <typename T> struct Slice {
     size_t len;
 
     explicit Slice(T *ptr, size_t len) : ptr(ptr), len(len) {}
+    explicit Slice() : ptr(nullptr), len(0) {}
 
     auto operator[](size_t idx) -> T & {
         assert(idx < this->len && "Out of bounds slice access");

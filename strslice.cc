@@ -1,7 +1,9 @@
 #pragma once
 
+#include "op.cc"
 #include "slice.cc"
 
+#include <stdio.h>
 #include <string.h>
 #include <sys/types.h>
 
@@ -28,14 +30,7 @@ auto startsWith(StrSlice haystack, StrSlice needle) -> bool {
     if (haystack.len < needle.len) {
         return false;
     }
-
-    for (size_t i = 0; i < needle.len; ++i) {
-        if (haystack[i] != needle[i]) {
-            return false;
-        }
-    }
-
-    return true;
+    return strncmp(haystack.ptr, needle.ptr, needle.len) == 0;
 }
 
 auto endsWith(StrSlice haystack, StrSlice needle) -> bool {
@@ -44,11 +39,36 @@ auto endsWith(StrSlice haystack, StrSlice needle) -> bool {
     }
 
     size_t offset = haystack.len - needle.len;
-    for (size_t i = 0; i < needle.len; ++i) {
-        if (haystack[offset + i] != needle[i]) {
-            return false;
-        }
-    }
+    return strncmp(haystack.ptr + offset, needle.ptr, needle.len) == 0;
+}
 
-    return true;
+struct PatternIterator {
+    StrSlice haystack;
+    StrSlice needle;
+    size_t idx;
+
+    explicit PatternIterator(StrSlice haystack, StrSlice needle)
+        : haystack(haystack), needle(needle), idx(0) {}
+
+    auto next() -> Op<size_t> {
+        if (this->idx >= this->haystack.len) {
+            return Op<size_t>::empty();
+        }
+
+        if (startsWith(this->haystack.slice(this->idx), this->needle)) {
+            size_t ret = this->idx;
+            this->idx += this->needle.len;
+            return ret;
+        }
+
+        ++this->idx;
+        return this->next();
+    }
+};
+
+auto toZString(StrSlice str) -> char * {
+    char *z_str = new char[str.len + 1];
+    snprintf(z_str, str.len + 1, "%.*s", STR_ARGS(str));
+
+    return z_str;
 }

@@ -4,7 +4,6 @@
 #include "utils.cc"
 
 #include <stdio.h>
-#include <stdlib.h>
 
 auto isDigit(char c) -> bool { return '0' <= c && c <= '9'; }
 auto isMinesweeperNumber(int num) -> bool { return 0 <= num && num <= 8; }

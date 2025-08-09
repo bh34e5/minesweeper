@@ -1,7 +1,9 @@
-nnn
-121
-___
+wall north 1 east 1 west 1
 
-nnn
-121
-FxF
+fnnnf
+f121f
+f___f
+
+fnnnf
+f121f
+fFxFf

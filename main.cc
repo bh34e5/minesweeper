@@ -45,13 +45,12 @@ auto flag_remaining_cells(Grid grid, size_t row, size_t col) -> bool {
         return false;
     }
 
-    size_t mine_count = cur.number;
-    if (mine_count == 0) {
+    size_t eff_mine_count = cur.eff_number;
+    if (eff_mine_count == 0) {
         return false;
     }
 
     size_t hidden_count = 0;
-    size_t flag_count = 0;
 
     auto neighbor_op = Op<Grid::Neighbor>::empty();
     auto neighbor_it = grid.neighborIterator(row, col);
@@ -59,12 +58,10 @@ auto flag_remaining_cells(Grid grid, size_t row, size_t col) -> bool {
         Cell cell = neighbor_op.get().cell;
         if (cell.display_type == CellDisplayType::cdt_hidden) {
             ++hidden_count;
-        } else if (cell.display_type == CellDisplayType::cdt_flag) {
-            ++flag_count;
         }
     }
 
-    if ((mine_count - flag_count) == hidden_count) {
+    if (eff_mine_count == hidden_count) {
         // flag all hidden cells
         bool did_work = false;
 
@@ -72,9 +69,9 @@ auto flag_remaining_cells(Grid grid, size_t row, size_t col) -> bool {
         auto neighbor_it = grid.neighborIterator(row, col);
         while ((neighbor_op = neighbor_it.next()).valid) {
             Grid::Neighbor neighbor = neighbor_op.get();
-            Cell &cell = neighbor.cell;
+            Cell cell = neighbor.cell;
             if (cell.display_type == CellDisplayType::cdt_hidden) {
-                cell.display_type = CellDisplayType::cdt_flag;
+                flagCell(grid, neighbor.loc);
                 did_work = true;
             }
         }
@@ -96,18 +93,8 @@ auto show_hidden_cells(Grid grid, size_t row, size_t col) -> bool {
         return false;
     }
 
-    size_t flag_count = 0;
-
-    auto neighbor_op = Op<Grid::Neighbor>::empty();
-    auto neighbor_it = grid.neighborIterator(row, col);
-    while ((neighbor_op = neighbor_it.next()).valid) {
-        Cell cell = neighbor_op.get().cell;
-        if (cell.display_type == CellDisplayType::cdt_flag) {
-            ++flag_count;
-        }
-    }
-
-    if (mine_count == flag_count) {
+    size_t eff_mine_count = cur.eff_number;
+    if (eff_mine_count == 0) {
         // show all hidden cells
         bool did_work = false;
 

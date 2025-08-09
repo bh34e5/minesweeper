@@ -26,6 +26,7 @@ struct Cell {
     CellType type;
     CellDisplayType display_type;
     unsigned char number; // if type == number, the associated value (0-8)
+    unsigned char eff_number;
 };
 
 struct Grid {
@@ -62,7 +63,7 @@ struct Grid {
             }
 
             ::Location loc = neighbor_op.get();
-            return Neighbor{loc, this->grid[loc.row][loc.col]};
+            return Neighbor{loc, this->grid[loc]};
         }
     };
 
@@ -77,20 +78,53 @@ struct Grid {
         return Row{this->cells.slice(row_s, row_e)};
     }
 
+    inline auto operator[](Location loc) -> Cell & {
+        return (*this)[loc.row][loc.col];
+    }
+
+    auto cellLocation(Cell &cell) -> Location {
+        size_t cell_idx = this->cells.indexOf(cell);
+
+        size_t row = cell_idx / this->dims.width;
+        size_t col = cell_idx % this->dims.width;
+
+        return Location{row, col};
+    }
+
     inline auto rowIterator() -> RowIterator { return RowIterator{*this, 0}; };
 
     inline auto neighborIterator(size_t row, size_t col) -> NeighborIterator {
         return NeighborIterator{
-            *this, ::NeighborIterator{Location{row, col}, this->dims, 0}};
+            *this, ::NeighborIterator{Location{row, col}, this->dims}};
     };
 
     inline auto neighborIterator(Location loc) -> NeighborIterator {
-        return NeighborIterator{*this, ::NeighborIterator{loc, this->dims, 0}};
+        return NeighborIterator{*this, ::NeighborIterator{loc, this->dims}};
     };
+
+    inline auto neighborIterator(Cell &cell) -> NeighborIterator {
+        Location loc = this->cellLocation(cell);
+        return this->neighborIterator(loc);
+    }
 };
 
+auto flagCell(Grid grid, Location loc) -> void {
+    grid[loc].display_type = CellDisplayType::cdt_flag;
+
+    auto neighbor_op = Op<Grid::Neighbor>::empty();
+    auto neighbor_it = grid.neighborIterator(loc);
+    while ((neighbor_op = neighbor_it.next()).valid) {
+        --(*neighbor_op.get().cell).eff_number;
+    }
+}
+
+auto flagCell(Grid grid, Cell &cell) -> void {
+    Location cell_loc = grid.cellLocation(cell);
+    flagCell(grid, cell_loc);
+}
+
 auto uncoverSelfAndNeighbors(Grid grid, Location loc) -> void {
-    Cell &cell = grid[loc.row][loc.col];
+    Cell &cell = grid[loc];
     if (cell.display_type != CellDisplayType::cdt_hidden) {
         return;
     }
@@ -113,6 +147,11 @@ auto uncoverSelfAndNeighbors(Grid grid, Location loc) -> void {
     }
 }
 
+auto uncoverSelfAndNeighbors(Grid grid, Cell &cell) -> void {
+    Location cell_loc = grid.cellLocation(cell);
+    uncoverSelfAndNeighbors(grid, cell_loc);
+}
+
 auto generateGrid(Dims dims, size_t mine_count, Location start_loc)
     -> Op<Grid> {
     size_t cell_count = dims.area();
@@ -132,7 +171,7 @@ auto generateGrid(Dims dims, size_t mine_count, Location start_loc)
 
     // initialize cells
     for (Cell &cell : grid.cells) {
-        cell = Cell{CellType::ct_number, CellDisplayType::cdt_hidden, 0};
+        cell = Cell{CellType::ct_number, CellDisplayType::cdt_hidden, 0, 0};
     }
 
     // fill mines
@@ -161,6 +200,7 @@ auto generateGrid(Dims dims, size_t mine_count, Location start_loc)
             Cell &cell = neighbor_op.get().cell;
             if (cell.type == CellType::ct_number) {
                 ++cell.number;
+                ++cell.eff_number;
             }
         }
     }

@@ -3,6 +3,7 @@
 #include "ref.cc"
 
 #include <assert.h>
+#include <stddef.h>
 #include <sys/types.h>
 
 template <typename T> struct Slice {
@@ -40,4 +41,32 @@ template <typename T> struct Slice {
 
     auto begin() -> T * { return this->ptr; }
     auto end() -> T * { return this->ptr + this->len; }
+
+    auto contains(T *ptr) -> bool {
+        char *c_start = (char *)this->ptr;
+        char *c_ptr = (char *)ptr;
+
+        if (c_ptr < c_start) {
+            return false;
+        }
+
+        ptrdiff_t diff = c_ptr - c_start;
+        if (diff % (sizeof(T)) != 0) {
+            return false;
+        }
+
+        // we have checked alignment above, this is safe
+        size_t idx = ptr - this->ptr;
+        if (idx >= this->len) {
+            return false;
+        }
+        return true;
+    }
+
+    auto indexOf(T &item) -> size_t {
+        assert(this->contains(&item));
+
+        T *ptr = &item;
+        return ptr - this->ptr;
+    }
 };

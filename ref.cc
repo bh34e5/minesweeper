@@ -5,4 +5,6 @@ template <typename T> struct Ref {
 
     Ref(T &val) : val(&val) {}
     operator T &() { return *this->val; }
+
+    auto operator*() const -> T & { return *this->val; }
 };

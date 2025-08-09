@@ -143,6 +143,12 @@ struct NeighborIterator {
     Dims dims;
     size_t dir;
 
+    explicit NeighborIterator(Location loc, Dims dims)
+        : loc(loc), dims(dims), dir(0) {}
+
+    explicit NeighborIterator(size_t row, size_t col, Dims dims)
+        : NeighborIterator(Location{row, col}, dims) {}
+
     auto next() -> Op<Location> {
         if (this->dir >= 8) {
             return Op<Location>::empty();
@@ -162,7 +168,7 @@ auto neighborCount(Location loc, Dims dims) -> size_t {
     size_t count = 0;
 
     auto neighbor_op = Op<Location>::empty();
-    auto neighbor_it = NeighborIterator{loc, dims, 0};
+    auto neighbor_it = NeighborIterator{loc, dims};
     while ((neighbor_op = neighbor_it.next()).valid) {
         ++count;
     }

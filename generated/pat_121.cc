@@ -86,7 +86,7 @@ auto checkPattern_pat_121(Grid grid, size_t row, size_t col, Pattern_pat_121 pat
 
     if (pat.c_2_1.display_type == CellDisplayType::cdt_hidden ||
         pat.c_2_1.display_type == CellDisplayType::cdt_maybe_flag) {
-        pat.c_2_1.display_type = CellDisplayType::cdt_flag;
+        flagCell(grid, pat.c_2_1);
         did_work = true;
     }
 
@@ -94,13 +94,13 @@ auto checkPattern_pat_121(Grid grid, size_t row, size_t col, Pattern_pat_121 pat
         pat.c_2_2.display_type == CellDisplayType::cdt_hidden) {
         // mark as hidden to remove possible maybe_flag
         pat.c_2_2.display_type = CellDisplayType::cdt_hidden;
-        uncoverSelfAndNeighbors(grid, Location{row + 2, col + 2});
+        uncoverSelfAndNeighbors(grid, pat.c_2_2);
         did_work = true;
     }
 
     if (pat.c_2_3.display_type == CellDisplayType::cdt_hidden ||
         pat.c_2_3.display_type == CellDisplayType::cdt_maybe_flag) {
-        pat.c_2_3.display_type = CellDisplayType::cdt_flag;
+        flagCell(grid, pat.c_2_3);
         did_work = true;
     }
 

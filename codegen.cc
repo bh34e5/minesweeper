@@ -483,10 +483,8 @@ auto writeActionCell(FILE *out, PatternCell pre_cond, PatternCell post_cond,
                 "        pat.c_%zu_%zu.display_type == "
                 "CellDisplayType::cdt_maybe_flag) {\n",
                 loc.row, loc.col);
-        fprintf(
-            out,
-            "        pat.c_%zu_%zu.display_type = CellDisplayType::cdt_flag;\n",
-            loc.row, loc.col);
+        fprintf(out, "        flagCell(grid, pat.c_%zu_%zu);\n", loc.row,
+                loc.col);
         fprintf(out, "        did_work = true;\n");
         fprintf(out, "    }\n");
         fprintf(out, "\n");
@@ -506,9 +504,7 @@ auto writeActionCell(FILE *out, PatternCell pre_cond, PatternCell post_cond,
                 "        pat.c_%zu_%zu.display_type = "
                 "CellDisplayType::cdt_hidden;\n",
                 loc.row, loc.col);
-        fprintf(out,
-                "        uncoverSelfAndNeighbors(grid, Location{row + %zu, col "
-                "+ %zu});\n",
+        fprintf(out, "        uncoverSelfAndNeighbors(grid, pat.c_%zu_%zu);\n",
                 loc.row, loc.col);
         fprintf(out, "        did_work = true;\n");
         fprintf(out, "    }\n");

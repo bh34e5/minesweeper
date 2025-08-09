@@ -4,7 +4,7 @@ set -exuo pipefail
 
 g++ -g -Wall -Wpedantic -std=c++17 codegen.cc -o codegen
 
-for f in *.pat ; do
+for f in patterns/*.pat ; do
     ./codegen "$f"
 done
 

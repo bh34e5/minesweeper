@@ -4,7 +4,7 @@
 #include "slice.cc"
 
 // auto generated
-#include "pat_121.cc"
+#include "generated/pat_121.cc"
 
 #include <stdlib.h>
 #include <sys/types.h>

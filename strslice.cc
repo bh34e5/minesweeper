@@ -15,6 +15,15 @@ auto str_slice(char const *s, size_t len) -> StrSlice {
 #define STR_SLICE(s) (str_slice(s, sizeof(s) - 1))
 #define STR_ARGS(ss) (int)ss.len, ss.ptr
 
+auto lastIdxOf(StrSlice haystack, char c) -> size_t {
+    char t;
+    size_t idx = 0;
+    while ((idx < haystack.len) && ((t = haystack[idx]) != c)) {
+        ++idx;
+    }
+    return idx;
+}
+
 auto endsWith(StrSlice haystack, StrSlice needle) -> bool {
     if (haystack.len < needle.len) {
         return false;

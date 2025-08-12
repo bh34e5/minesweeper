@@ -22,15 +22,25 @@ auto writeStructDefinition(FILE *out, StrSlice out_fn, Dims dims) -> void {
 
 auto writePatternMatchCell(FILE *out, PatternCell cell, Location loc) -> void {
     switch (cell.type) {
-    case pct_any: {
-    } break;
-    case pct_number: {
+    case pct_hidden: {
         fprintf(out,
                 "    if (pat.c_%zu_%zu.display_type != "
-                "CellDisplayType::cdt_value ||\n",
+                "CellDisplayType::cdt_hidden) {\n",
                 loc.row, loc.col);
-        fprintf(out, "        pat.c_%zu_%zu.type != CellType::ct_number) {\n",
-                loc.row, loc.col);
+        fprintf(out, "        return false;\n");
+        fprintf(out, "    }\n");
+        fprintf(out, "\n");
+    } break;
+    case pct_number: {
+        // NOTE(bhester): Since we are using the "effective number" to check
+        // literals, we want to count a flag as a "number" in the sense that it
+        // can't be flagged
+        fprintf(
+            out,
+            "    if ((pat.c_%zu_%zu.display_type != CellDisplayType::cdt_value "
+            "|| pat.c_%zu_%zu.type != CellType::ct_number) && "
+            "(pat.c_%zu_%zu.display_type != CellDisplayType::cdt_flag)) {\n",
+            loc.row, loc.col, loc.row, loc.col, loc.row, loc.col);
         fprintf(out, "        return false;\n");
         fprintf(out, "    }\n");
         fprintf(out, "\n");
@@ -38,21 +48,10 @@ auto writePatternMatchCell(FILE *out, PatternCell cell, Location loc) -> void {
     case pct_literal: {
         fprintf(out,
                 "    if (pat.c_%zu_%zu.display_type != "
-                "CellDisplayType::cdt_value ||\n",
-                loc.row, loc.col);
-        fprintf(out,
-                "        pat.c_%zu_%zu.type != CellType::ct_number || "
-                "pat.c_%zu_%zu.number != %d) {\n",
-                loc.row, loc.col, loc.row, loc.col, cell.number);
-        fprintf(out, "        return false;\n");
-        fprintf(out, "    }\n");
-        fprintf(out, "\n");
-    } break;
-    case pct_not_flag: {
-        fprintf(out,
-                "    if (pat.c_%zu_%zu.display_type == "
-                "CellDisplayType::cdt_flag) {\n",
-                loc.row, loc.col);
+                "CellDisplayType::cdt_value || pat.c_%zu_%zu.type != "
+                "CellType::ct_number || pat.c_%zu_%zu.eff_number != %d) {\n",
+                loc.row, loc.col, loc.row, loc.col, loc.row, loc.col,
+                cell.number);
         fprintf(out, "        return false;\n");
         fprintf(out, "    }\n");
         fprintf(out, "\n");
@@ -64,33 +63,26 @@ auto writePatternMatchCell(FILE *out, PatternCell cell, Location loc) -> void {
     }
 }
 
-auto writeActionCell(FILE *out, PatternCell pre_cond, PatternCell post_cond,
-                     Location loc) -> void {
-    switch (post_cond.type) {
-    case pct_flag: {
+auto writeActionCell(FILE *out, Action action, Location loc) -> void {
+    switch (action.action) {
+    case act_flag: {
         fprintf(out,
                 "    if (pat.c_%zu_%zu.display_type == "
-                "CellDisplayType::cdt_hidden ||\n",
-                loc.row, loc.col);
-        fprintf(out,
-                "        pat.c_%zu_%zu.display_type == "
+                "CellDisplayType::cdt_hidden || pat.c_%zu_%zu.display_type == "
                 "CellDisplayType::cdt_maybe_flag) {\n",
-                loc.row, loc.col);
+                loc.row, loc.col, loc.row, loc.col);
         fprintf(out, "        flagCell(grid, pat.c_%zu_%zu);\n", loc.row,
                 loc.col);
         fprintf(out, "        did_work = true;\n");
         fprintf(out, "    }\n");
         fprintf(out, "\n");
     } break;
-    case pct_execute: {
+    case act_execute: {
         fprintf(out,
                 "    if (pat.c_%zu_%zu.display_type == "
-                "CellDisplayType::cdt_maybe_flag ||\n",
-                loc.row, loc.col);
-        fprintf(out,
-                "        pat.c_%zu_%zu.display_type == "
-                "CellDisplayType::cdt_hidden) {\n",
-                loc.row, loc.col);
+                "CellDisplayType::cdt_maybe_flag || pat.c_%zu_%zu.display_type "
+                "== CellDisplayType::cdt_hidden) {\n",
+                loc.row, loc.col, loc.row, loc.col);
         fprintf(out,
                 "        // mark as hidden to remove possible maybe_flag\n");
         fprintf(out,
@@ -102,12 +94,6 @@ auto writeActionCell(FILE *out, PatternCell pre_cond, PatternCell post_cond,
         fprintf(out, "        did_work = true;\n");
         fprintf(out, "    }\n");
         fprintf(out, "\n");
-    } break;
-    case pct_any:
-    case pct_number:
-    case pct_not_flag:
-    case pct_literal: {
-        assert(0 && "Bad pattern");
     } break;
     }
 }
@@ -135,7 +121,7 @@ auto writeCheckPatternFunction(FILE *out, StrSlice out_fn, Pattern pattern)
     fprintf(out, "\n");
 
     for (Action action : pattern.actions) {
-        writeActionCell(out, action.pre_cond, action.post_cond, action.loc);
+        writeActionCell(out, action, action.loc);
     }
 
     fprintf(out, "    return did_work;\n");
@@ -199,7 +185,6 @@ auto writeFunctionGeneric(FILE *out, StrSlice out_fn, Dims dims, size_t num,
     fprintf(out, "        return false;\n");
     fprintf(out, "    }\n");
     fprintf(out, "\n");
-
     fprintf(out, "    Pattern_%.*s pat{\n", STR_ARGS(out_fn));
     for (size_t r = 0; r < dims.height; ++r) {
         for (size_t c = 0; c < dims.width; ++c) {
@@ -210,7 +195,6 @@ auto writeFunctionGeneric(FILE *out, StrSlice out_fn, Dims dims, size_t num,
     }
     fprintf(out, "    };\n");
     fprintf(out, "\n");
-
     fprintf(out, "    return checkPattern_%.*s(grid, row, col, pat);\n",
             STR_ARGS(out_fn));
     fprintf(out, "};\n");
@@ -283,6 +267,7 @@ auto writeFunction(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
             STR_ARGS(out_fn));
     fprintf(out, "    bool did_work_270n = %.*s_270n(grid, row, col);\n",
             STR_ARGS(out_fn));
+    fprintf(out, "\n");
     fprintf(out, "    bool did_work_0r = %.*s_0r(grid, row, col);\n",
             STR_ARGS(out_fn));
     fprintf(out, "    bool did_work_90r = %.*s_90r(grid, row, col);\n",

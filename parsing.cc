@@ -18,10 +18,9 @@ struct Walls {
 };
 
 enum PatternCellType {
-    pct_any,
+    pct_hidden,
     pct_number,
     pct_literal,
-    pct_not_flag,
     pct_flag,
     pct_execute,
 };
@@ -31,9 +30,15 @@ struct PatternCell {
     unsigned char number;
 };
 
+enum ActionCellType {
+    act_flag,
+    act_execute,
+};
+
 struct Action {
     PatternCell pre_cond;
     PatternCell post_cond;
+    ActionCellType action;
     Location loc;
 };
 
@@ -68,10 +73,9 @@ auto readWalls(StrSlice &cur_contents, Walls &walls) -> void {
         case tt_west: {
             target = &walls.west;
         } break;
-        case tt_any:
+        case tt_hidden:
         case tt_number:
         case tt_literal:
-        case tt_not_flag:
         case tt_flag:
         case tt_execute:
         case tt_space:
@@ -171,9 +175,8 @@ auto readPattern(StrSlice contents) -> Pattern {
                 ++row_width;
             }
         } break;
-        case tt_any:
+        case tt_hidden:
         case tt_number:
-        case tt_not_flag:
         case tt_flag:
         case tt_execute: {
             ++row_width;
@@ -213,8 +216,8 @@ auto readPattern(StrSlice contents) -> Pattern {
 
             Token token_resp = nextToken(cur_contents);
             switch (token_resp.type) {
-            case tt_any: {
-                in_cell = PatternCell{PatternCellType::pct_any};
+            case tt_hidden: {
+                in_cell = PatternCell{PatternCellType::pct_hidden};
             } break;
             case tt_number: {
                 in_cell = PatternCell{PatternCellType::pct_number};
@@ -232,9 +235,6 @@ auto readPattern(StrSlice contents) -> Pattern {
                     ++c;
                 }
                 --c; // we increment one too many times in the above loop
-            } break;
-            case tt_not_flag: {
-                in_cell = PatternCell{PatternCellType::pct_not_flag};
             } break;
             case tt_flag:
             case tt_execute:
@@ -265,8 +265,8 @@ auto readPattern(StrSlice contents) -> Pattern {
 
             Token token_resp = nextToken(cur_contents);
             switch (token_resp.type) {
-            case tt_any: {
-                out_cell = PatternCell{PatternCellType::pct_any};
+            case tt_hidden: {
+                out_cell = PatternCell{PatternCellType::pct_hidden};
             } break;
             case tt_number: {
                 out_cell = PatternCell{PatternCellType::pct_number};
@@ -291,9 +291,6 @@ auto readPattern(StrSlice contents) -> Pattern {
                 }
                 --c; // we increment one too many times in the above loop
             } break;
-            case tt_not_flag: {
-                out_cell = PatternCell{PatternCellType::pct_not_flag};
-            } break;
             case tt_flag: {
                 out_cell = PatternCell{PatternCellType::pct_flag};
             } break;
@@ -314,10 +311,23 @@ auto readPattern(StrSlice contents) -> Pattern {
             }
 
             switch (out_cell.type) {
-            case pct_flag:
-            case pct_execute: {
+            case pct_flag: {
+                if (in_cell.type != PatternCellType::pct_hidden) {
+                    fprintf(stderr, "Can only perform action on hidden cell\n");
+                    EXIT(1);
+                }
+
                 actions_ptr[actions_len++] =
-                    Action{in_cell, out_cell, Location{r, c}};
+                    Action{in_cell, out_cell, act_flag, Location{r, c}};
+            } break;
+            case pct_execute: {
+                if (in_cell.type != PatternCellType::pct_hidden) {
+                    fprintf(stderr, "Can only perform action on hidden cell\n");
+                    EXIT(1);
+                }
+
+                actions_ptr[actions_len++] =
+                    Action{in_cell, out_cell, act_execute, Location{r, c}};
             } break;
             default: {
                 if (out_cell.type != in_cell.type ||

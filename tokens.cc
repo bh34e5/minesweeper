@@ -9,10 +9,9 @@ auto isDigit(char c) -> bool { return '0' <= c && c <= '9'; }
 auto isMinesweeperNumber(int num) -> bool { return 0 <= num && num <= 8; }
 
 enum TokenType {
-    tt_any,
+    tt_hidden,
     tt_number,
     tt_literal,
-    tt_not_flag,
     tt_flag,
     tt_execute,
     tt_space,
@@ -100,11 +99,7 @@ auto nextToken(StrSlice &contents) -> Token {
     } break;
     case '_': {
         next_contents = contents.slice(1);
-        token = Token{TokenType::tt_any, contents.slice(0, 1)};
-    } break;
-    case 'f': {
-        next_contents = contents.slice(1);
-        token = Token{TokenType::tt_not_flag, contents.slice(0, 1)};
+        token = Token{TokenType::tt_hidden, contents.slice(0, 1)};
     } break;
     case 'F': {
         next_contents = contents.slice(1);

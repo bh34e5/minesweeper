@@ -4,7 +4,7 @@
 #include "slice.cc"
 
 // auto generated
-#include "generated/pat_121.cc"
+#include "generated/generated.cc"
 
 #include <stdlib.h>
 #include <sys/types.h>
@@ -16,19 +16,37 @@ struct GridSolver {
         typedef auto(Apply)(Grid grid, size_t row, size_t col) -> bool;
 
         Apply *apply;
+
+        auto applyRule(Grid grid, size_t row, size_t col) -> bool {
+            if (this->apply == nullptr) {
+                return false;
+            }
+            return this->apply(grid, row, col);
+        }
     };
 
     Slice<Rule> rules;
 
-    auto solvable(Grid grid) -> bool {
+    auto solvable(Grid grid, bool verbose = false) -> bool {
         bool did_work = true;
+
+        if (verbose) {
+            printGrid(grid);
+            printf("\n");
+        }
+
         while (did_work) {
             did_work = false;
             for (size_t r = 0; r < grid.dims.height; ++r) {
                 for (size_t c = 0; c < grid.dims.width; ++c) {
                     for (auto &rule : this->rules) {
-                        bool rule_did_work = rule.apply(grid, r, c);
+                        bool rule_did_work = rule.applyRule(grid, r, c);
                         did_work = did_work || rule_did_work;
+
+                        if (verbose && rule_did_work) {
+                            printGrid(grid);
+                            printf("\n");
+                        }
                     }
                 }
             }
@@ -123,9 +141,12 @@ int main() {
     }
 
     Grid grid = g_op.get();
-    GridSolver::Rule rules[] = {GridSolver::Rule{&flag_remaining_cells},
-                                GridSolver::Rule{&show_hidden_cells},
-                                GridSolver::Rule{&pat_121}};
+    GridSolver::Rule rules[] = {GridSolver::Rule{flag_remaining_cells},
+                                GridSolver::Rule{show_hidden_cells},
+#define X(fn) GridSolver::Rule{fn},
+                                generated_patterns
+#undef X
+    };
     GridSolver solver{Slice<GridSolver::Rule>{rules, LEN(rules)}};
 
     bool is_solvable = solver.solvable(grid);

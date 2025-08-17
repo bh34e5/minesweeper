@@ -3,6 +3,7 @@
 #include "dlist.cc"
 #include "grid.cc"
 
+#include <limits.h>
 #include <stdio.h>
 #include <sys/types.h>
 
@@ -69,7 +70,9 @@ struct GridSolver {
             did_work = false;
 
             if (verbose) {
-                printf("Epoch %zu\n", ++epoch_count);
+                long remaining = this->getRemainingFlags(grid);
+                printf("Epoch %zu (remaining = %ld)\n", ++epoch_count,
+                       remaining);
             }
 
             for (auto &rule : this->rules.slice()) {
@@ -96,5 +99,19 @@ struct GridSolver {
         }
 
         return gridSolved(grid);
+    }
+
+    auto getRemainingFlags(Grid grid) -> long {
+        assert(grid.mine_count <= static_cast<size_t>(LONG_MAX) &&
+               "Mine count exceeds long max");
+
+        long remaining = static_cast<long>(grid.mine_count);
+        for (auto &cell : grid.cells) {
+            if (cell.display_type == CellDisplayType::cdt_flag) {
+                remaining -= 1;
+            }
+        }
+
+        return remaining;
     }
 };

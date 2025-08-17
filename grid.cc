@@ -70,8 +70,10 @@ struct Grid {
 
     Slice<Cell> cells;
     Dims dims;
+    size_t mine_count;
 
-    explicit Grid(Slice<Cell> cells, Dims dims) : cells(cells), dims(dims) {}
+    explicit Grid(Slice<Cell> cells, Dims dims, size_t mine_count)
+        : cells(cells), dims(dims), mine_count(mine_count) {}
 
     inline auto operator[](size_t row) -> Row {
         size_t row_s = (row + 0) * this->dims.width;
@@ -154,7 +156,7 @@ auto uncoverSelfAndNeighbors(Grid grid, Cell &cell) -> void {
 }
 
 auto generateGrid(Arena &arena, Dims dims, size_t mine_count,
-                  Location start_loc) -> Op<Grid> {
+                  Location start_loc) -> Grid {
     size_t cell_count = dims.area();
     assert(cell_count > 0 && "Invalid dimensions");
     assert(start_loc.row < dims.width && "Invalid start row");
@@ -164,7 +166,7 @@ auto generateGrid(Arena &arena, Dims dims, size_t mine_count,
     assert(mine_count < (cell_count - neighbor_count) && "Invalid mine count");
 
     Cell *cells = arena.pushTN<Cell>(cell_count);
-    Grid grid{Slice<Cell>{cells, cell_count}, dims};
+    Grid grid{Slice<Cell>{cells, cell_count}, dims, mine_count};
 
     // initialize cells
     for (Cell &cell : grid.cells) {

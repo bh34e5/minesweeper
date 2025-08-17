@@ -94,12 +94,7 @@ int main() {
 
     Arena arena{MEGABYTES(10)};
 
-    Op<Grid> g_op = generateGrid(arena, Dims{9, 18}, 34, Location{5, 5});
-    if (!g_op.valid) {
-        return 1;
-    }
-
-    Grid grid = g_op.get();
+    Grid grid = generateGrid(arena, Dims{9, 18}, 34, Location{5, 5});
 
     GridSolver solver{};
     solver.registerRule(GridSolver::Rule{flag_remaining_cells});

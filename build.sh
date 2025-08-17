@@ -17,6 +17,7 @@ done
 rm -f $OUT_FILE
 echo "#pragma once" >> $OUT_FILE
 echo "" >> $OUT_FILE
+echo '#include "../solver.cc"' >> $OUT_FILE
 
 FUNCTIONS=
 
@@ -35,13 +36,11 @@ done
 
 if ! [[ -z "$FUNCTIONS" ]] ; then
     echo "" >> $OUT_FILE
-    echo "#define generated_patterns \\" >> $OUT_FILE
-
+    echo "auto registerPatterns(GridSolver &solver) -> void {" >> $OUT_FILE
     for FUNC in $FUNCTIONS ; do
-        echo "    X($FUNC) \\" >> $OUT_FILE
+        echo "    register_$FUNC(solver);" >> $OUT_FILE
     done
-
-    echo "    X(nullptr)" >> $OUT_FILE
+    echo "}" >> $OUT_FILE
 fi
 
 

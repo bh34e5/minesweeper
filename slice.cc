@@ -10,8 +10,8 @@ template <typename T> struct Slice {
     T *ptr;
     size_t len;
 
-    explicit Slice(T *ptr, size_t len) : ptr(ptr), len(len) {}
     explicit Slice() : ptr(nullptr), len(0) {}
+    explicit Slice(T *ptr, size_t len) : ptr(ptr), len(len) {}
 
     auto operator[](size_t idx) -> T & {
         assert(idx < this->len && "Out of bounds slice access");
@@ -43,8 +43,8 @@ template <typename T> struct Slice {
     auto end() -> T * { return this->ptr + this->len; }
 
     auto contains(T *ptr) -> bool {
-        char *c_start = (char *)this->ptr;
-        char *c_ptr = (char *)ptr;
+        char *c_start = static_cast<char *>(static_cast<void *>(this->ptr));
+        char *c_ptr = static_cast<char *>(static_cast<void *>(ptr));
 
         if (c_ptr < c_start) {
             return false;
@@ -68,5 +68,9 @@ template <typename T> struct Slice {
 
         T *ptr = &item;
         return ptr - this->ptr;
+    }
+
+    auto eql(Slice const &other) -> bool const {
+        return this->ptr == other.ptr && this->len == other.len;
     }
 };

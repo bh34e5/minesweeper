@@ -1,7 +1,9 @@
 #pragma once
 
+#include "arena.cc"
 #include "op.cc"
 #include "slice.cc"
+#include "utils.cc"
 
 #include <stdio.h>
 #include <string.h>
@@ -68,6 +70,17 @@ struct PatternIterator {
 
 auto toZString(StrSlice str) -> char * {
     char *z_str = new char[str.len + 1];
+    if (z_str == nullptr) {
+        fprintf(stderr, "Out of memory\n");
+        EXIT(1);
+    }
+
+    snprintf(z_str, str.len + 1, "%.*s", STR_ARGS(str));
+    return z_str;
+}
+
+auto toZString(Arena &arena, StrSlice str) -> char * {
+    char *z_str = arena.pushTN<char>(str.len + 1);
     snprintf(z_str, str.len + 1, "%.*s", STR_ARGS(str));
 
     return z_str;

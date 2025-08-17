@@ -1,5 +1,6 @@
 #pragma once
 
+#include "arena.cc"
 #include "dirutils.cc"
 #include "op.cc"
 #include "ref.cc"
@@ -152,8 +153,8 @@ auto uncoverSelfAndNeighbors(Grid grid, Cell &cell) -> void {
     uncoverSelfAndNeighbors(grid, cell_loc);
 }
 
-auto generateGrid(Dims dims, size_t mine_count, Location start_loc)
-    -> Op<Grid> {
+auto generateGrid(Arena &arena, Dims dims, size_t mine_count,
+                  Location start_loc) -> Op<Grid> {
     size_t cell_count = dims.area();
     assert(cell_count > 0 && "Invalid dimensions");
     assert(start_loc.row < dims.width && "Invalid start row");
@@ -162,11 +163,7 @@ auto generateGrid(Dims dims, size_t mine_count, Location start_loc)
     size_t neighbor_count = neighborCount(start_loc, dims);
     assert(mine_count < (cell_count - neighbor_count) && "Invalid mine count");
 
-    Cell *cells = new Cell[cell_count];
-    if (cells == nullptr) {
-        return Op<Grid>::empty();
-    }
-
+    Cell *cells = arena.pushTN<Cell>(cell_count);
     Grid grid{Slice<Cell>{cells, cell_count}, dims};
 
     // initialize cells

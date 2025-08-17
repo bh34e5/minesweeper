@@ -2,6 +2,7 @@
 
 #include "../dirutils.cc"
 #include "../grid.cc"
+#include "../solver.cc"
 
 #include <sys/types.h>
 
@@ -281,7 +282,7 @@ auto pat_13_1_270r(Grid grid, size_t row, size_t col) -> bool {
     return checkPattern_pat_13_1(grid, row, col, pat);
 };
 
-auto pat_13_1(Grid grid, size_t row, size_t col) -> bool {
+auto pat_13_1(Grid grid, size_t row, size_t col, void *) -> bool {
     bool did_work_0n = pat_13_1_0n(grid, row, col);
     bool did_work_90n = pat_13_1_90n(grid, row, col);
     bool did_work_180n = pat_13_1_180n(grid, row, col);
@@ -294,4 +295,8 @@ auto pat_13_1(Grid grid, size_t row, size_t col) -> bool {
 
     return did_work_0n || did_work_180n || did_work_90n || did_work_270n ||
            did_work_0r || did_work_180r || did_work_90r || did_work_270r;
+}
+
+auto register_pat_13_1(GridSolver &solver) -> void {
+    solver.registerRule(GridSolver::Rule{pat_13_1});
 }

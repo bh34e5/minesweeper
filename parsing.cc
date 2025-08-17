@@ -1,5 +1,6 @@
 #pragma once
 
+#include "arena.cc"
 #include "dirutils.cc"
 #include "slice.cc"
 #include "tokens.cc"
@@ -100,7 +101,7 @@ auto readWalls(StrSlice &cur_contents, Walls &walls) -> void {
     expectToken(cur_contents, TokenType::tt_newline);
 }
 
-auto readPattern(StrSlice contents) -> Pattern {
+auto readPattern(Arena &arena, StrSlice contents) -> Pattern {
     size_t width = 0;
     size_t height = 0;
 
@@ -198,16 +199,11 @@ auto readPattern(StrSlice contents) -> Pattern {
 
     Dims dims{width, height};
 
-    PatternCell *cells_ptr = new PatternCell[dims.area()];
+    PatternCell *cells_ptr = arena.pushTN<PatternCell>(dims.area());
     Slice<PatternCell> cells{cells_ptr, dims.area()};
 
     size_t actions_len = 0;
-    Action *actions_ptr = new Action[dims.area()];
-
-    if (cells_ptr == nullptr || actions_ptr == nullptr) {
-        fprintf(stderr, "Out of memory\n");
-        EXIT(1);
-    }
+    Action *actions_ptr = arena.pushTN<Action>(dims.area());
 
     cur_contents = pattern_start;
     for (size_t r = 0; r < dims.height; ++r) {

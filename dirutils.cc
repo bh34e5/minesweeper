@@ -103,6 +103,10 @@ auto dirWestward(Dir dir) -> bool {
 struct Location {
     size_t row;
     size_t col;
+
+    auto eql(Location const &other) -> bool const {
+        return this->row == other.row && this->col == other.col;
+    }
 };
 
 struct Dims {

@@ -1,3 +1,4 @@
+#include "arena.cc"
 #include "dirutils.cc"
 #include "fileutils.cc"
 #include "op.cc"
@@ -233,11 +234,12 @@ auto writeFunction_270r(FILE *out, StrSlice out_fn, Dims dims) -> void {
     writeFunctionGeneric<dimAdj90, locAdj270r>(out, out_fn, dims, 270, 'r');
 }
 
-auto writeFunction(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
+auto writeBody(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
     fprintf(out, "#pragma once\n");
     fprintf(out, "\n");
     fprintf(out, "#include \"../dirutils.cc\"\n");
     fprintf(out, "#include \"../grid.cc\"\n");
+    fprintf(out, "#include \"../solver.cc\"\n");
     fprintf(out, "\n");
     fprintf(out, "#include <sys/types.h>\n");
     fprintf(out, "\n");
@@ -257,7 +259,8 @@ auto writeFunction(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
     writeFunction_180r(out, out_fn, dims);
     writeFunction_270r(out, out_fn, dims);
 
-    fprintf(out, "auto %.*s(Grid grid, size_t row, size_t col) -> bool {\n",
+    fprintf(out,
+            "auto %.*s(Grid grid, size_t row, size_t col, void *) -> bool {\n",
             STR_ARGS(out_fn));
     fprintf(out, "    bool did_work_0n = %.*s_0n(grid, row, col);\n",
             STR_ARGS(out_fn));
@@ -282,6 +285,12 @@ auto writeFunction(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
     fprintf(out, "           did_work_0r || did_work_180r || did_work_90r || "
                  "did_work_270r;\n");
     fprintf(out, "}\n");
+    fprintf(out, "\n");
+    fprintf(out, "auto register_%.*s(GridSolver &solver) -> void {\n",
+            STR_ARGS(out_fn));
+    fprintf(out, "    solver.registerRule(GridSolver::Rule{%.*s});\n",
+            STR_ARGS(out_fn));
+    fprintf(out, "}\n");
 }
 
 auto usage(char const *path) -> void {
@@ -296,18 +305,20 @@ int main(int argc, char const *argv[]) {
         EXIT(1);
     }
 
-    makeDirAndParentsIfNotExists(OUT_DIR);
+    Arena arena{MEGABYTES(10)};
+
+    makeDirAndParentsIfNotExists(arena, OUT_DIR);
 
     char const *in_name = argv[1];
-    FileArgs file_args = getFileArgs(in_name);
+    FileArgs file_args = getFileArgs(arena, in_name);
 
-    Op<StrSlice> contents_op = getContents(in_name);
+    Op<StrSlice> contents_op = getContents(arena, in_name);
     if (!contents_op.valid) {
         fprintf(stderr, "Failed to read pattern file %s\n", in_name);
         EXIT(1);
     }
 
-    Pattern pattern = readPattern(contents_op.get());
+    Pattern pattern = readPattern(arena, contents_op.get());
 
     char const *out_name = file_args.out_name;
     FILE *out = fopen(out_name, "w");
@@ -316,7 +327,7 @@ int main(int argc, char const *argv[]) {
         EXIT(1);
     }
 
-    writeFunction(out, file_args.out_root, pattern);
+    writeBody(out, file_args.out_root, pattern);
     fflush(out);
     fclose(out);
 }

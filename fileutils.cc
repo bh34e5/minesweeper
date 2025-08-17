@@ -1,5 +1,6 @@
 #pragma once
 
+#include "arena.cc"
 #include "op.cc"
 #include "strslice.cc"
 #include "utils.cc"
@@ -13,7 +14,7 @@ static StrSlice OUT_DIR = STR_SLICE("generated/");
 static StrSlice OUT_PREFIX = STR_SLICE("pat_");
 static StrSlice OUT_SUFFIX = STR_SLICE(".cc");
 
-auto getContents(char const *filename) -> Op<StrSlice> {
+auto getContents(Arena &arena, char const *filename) -> Op<StrSlice> {
     FILE *f = fopen(filename, "r");
     if (f == nullptr) {
         return Op<StrSlice>::empty();
@@ -23,14 +24,12 @@ auto getContents(char const *filename) -> Op<StrSlice> {
     size_t file_len = ftell(f);
     fseek(f, 0, SEEK_SET);
 
-    char *ptr = new char[file_len];
-    if (ptr == nullptr) {
-        return Op<StrSlice>::empty();
-    }
+    size_t mark = arena.len;
+    char *ptr = arena.pushTN<char>(file_len);
 
     size_t nread = fread(ptr, file_len, 1, f);
     if (nread != 1) {
-        delete[] ptr;
+        arena.reset(mark);
         return Op<StrSlice>::empty();
     }
 
@@ -49,7 +48,7 @@ struct FileArgs {
     char const *out_name;
 };
 
-auto getFileArgs(char const *in_name) -> FileArgs {
+auto getFileArgs(Arena &arena, char const *in_name) -> FileArgs {
     StrSlice in_slice = str_slice(in_name);
 
     if (!endsWith(in_slice, PAT_SUFFIX)) {
@@ -70,7 +69,7 @@ auto getFileArgs(char const *in_name) -> FileArgs {
     size_t out_len =
         in_root.len + OUT_DIR.len + OUT_PREFIX.len + OUT_SUFFIX.len;
 
-    char *ptr = new char[out_len + 1]; // len + 1 for null terminator
+    char *ptr = arena.pushTN<char>(out_len + 1); // len + 1 for null terminator
     snprintf(ptr, out_len + 1, "%.*s%.*s%.*s%.*s", STR_ARGS(OUT_DIR),
              STR_ARGS(OUT_PREFIX), STR_ARGS(in_root), STR_ARGS(OUT_SUFFIX));
 
@@ -82,8 +81,9 @@ auto getFileArgs(char const *in_name) -> FileArgs {
                     out_slice, out_root, ptr};
 }
 
-auto makeDirIfNotExists(StrSlice dir_name) -> void {
-    char const *name_str = toZString(dir_name);
+auto makeDirIfNotExists(Arena &arena, StrSlice dir_name) -> void {
+    auto marker = arena.mark();
+    char const *name_str = toZString(arena, dir_name);
 
     struct stat stat_struct{};
     int ret = stat(name_str, &stat_struct);
@@ -98,15 +98,13 @@ auto makeDirIfNotExists(StrSlice dir_name) -> void {
             EXIT(1);
         }
     }
-
-    delete[] name_str;
 }
 
-auto makeDirAndParentsIfNotExists(StrSlice dir_name) -> void {
+auto makeDirAndParentsIfNotExists(Arena &arena, StrSlice dir_name) -> void {
     auto pattern_op = Op<size_t>::empty();
     auto pattern_it = PatternIterator{dir_name, STR_SLICE("/")};
     while ((pattern_op = pattern_it.next()).valid) {
         size_t idx = pattern_op.get();
-        makeDirIfNotExists(dir_name.slice(0, idx));
+        makeDirIfNotExists(arena, dir_name.slice(0, idx));
     }
 }

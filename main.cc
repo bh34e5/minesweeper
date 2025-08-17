@@ -20,8 +20,7 @@ auto flag_remaining_cells(Grid grid, size_t row, size_t col, void *) -> bool {
         return false;
     }
 
-    size_t eff_mine_count = cur.eff_number;
-    if (eff_mine_count == 0) {
+    if (cur.eff_number == 0) {
         return false;
     }
 
@@ -36,7 +35,7 @@ auto flag_remaining_cells(Grid grid, size_t row, size_t col, void *) -> bool {
         }
     }
 
-    if (eff_mine_count == hidden_count) {
+    if (cur.eff_number == hidden_count) {
         // flag all hidden cells
         bool did_work = false;
 
@@ -156,8 +155,8 @@ struct OneOfAwareRule {
                 auto neighbor_op = Op<Grid::Neighbor>::empty();
                 auto neighbor_it = grid.neighborIterator(cell);
                 while ((neighbor_op = neighbor_it.next()).valid) {
-                    Grid::Neighbor nbor = neighbor_op.get();
-                    if ((*nbor.cell).display_type ==
+                    Grid::Neighbor neighbor = neighbor_op.get();
+                    if ((*neighbor.cell).display_type ==
                         CellDisplayType::cdt_hidden) {
                         ++loc_count;
                     }
@@ -171,10 +170,10 @@ struct OneOfAwareRule {
                 auto neighbor_op = Op<Grid::Neighbor>::empty();
                 auto neighbor_it = grid.neighborIterator(cell);
                 while ((neighbor_op = neighbor_it.next()).valid) {
-                    Grid::Neighbor nbor = neighbor_op.get();
-                    if ((*nbor.cell).display_type ==
+                    Grid::Neighbor neighbor = neighbor_op.get();
+                    if ((*neighbor.cell).display_type ==
                         CellDisplayType::cdt_hidden) {
-                        loc_ptr[loc_count++] = nbor.loc;
+                        loc_ptr[loc_count++] = neighbor.loc;
                     }
                 }
             }
@@ -192,6 +191,12 @@ struct OneOfAwareRule {
 
     auto apply(Grid grid, size_t row, size_t col) -> bool {
         Location cur_loc{row, col};
+        Cell cur = grid[cur_loc];
+        if (cur.display_type != CellDisplayType::cdt_value ||
+            cur.type != CellType::ct_number) {
+            return false;
+        }
+
         return this->applyInner(grid, cur_loc, this->keeper.options.slice(),
                                 Slice<CellOptions>{});
     }
@@ -204,38 +209,10 @@ struct OneOfAwareRule {
 
         if (remaining_ops.len == 0) {
             Cell &cell = grid[cur_loc];
-            if (cell.eff_number == applied_ops.len) {
-                auto neighbor_op = Op<Grid::Neighbor>::empty();
-                auto neighbor_it = grid.neighborIterator(cell);
-                while ((neighbor_op = neighbor_it.next()).valid) {
-                    Grid::Neighbor nbor = neighbor_op.get();
-                    if ((*nbor.cell).display_type !=
-                        CellDisplayType::cdt_hidden) {
-                        continue;
-                    }
 
-                    bool valid_loc = true;
-                    for (auto &applied_op : applied_ops) {
-                        for (auto &mine_op : applied_op.mine_options) {
-                            if (mine_op.eql(nbor.loc)) {
-                                valid_loc = false;
-                                break;
-                            }
-                        }
+            did_work = flagPossibleCells(grid, cell, applied_ops) || did_work;
+            did_work = revealPossibleCells(grid, cell, applied_ops) || did_work;
 
-                        if (!valid_loc) {
-                            break;
-                        }
-                    }
-
-                    if (!valid_loc) {
-                        continue;
-                    }
-
-                    uncoverSelfAndNeighbors(grid, nbor.loc);
-                    did_work = true;
-                }
-            }
             return did_work;
         }
 
@@ -250,14 +227,100 @@ struct OneOfAwareRule {
             Slice<CellOptions> inner_slice{pushed - applied_ops.len,
                                            applied_ops.len + 1};
 
-            bool inner_did_work = this->applyInner(
-                grid, cur_loc, remaining_ops.slice(rem_idx + 1), inner_slice);
+            did_work = this->applyInner(grid, cur_loc,
+                                        remaining_ops.slice(rem_idx + 1),
+                                        inner_slice) ||
+                       did_work;
 
             this->rule_arena.reset(mark);
+        }
 
-            did_work = did_work || inner_did_work;
+        return did_work;
+    }
+
+    auto flagPossibleCells(Grid grid, Cell &cell,
+                           Slice<CellOptions> applied_ops) -> bool {
+        if (cell.eff_number == applied_ops.len) {
+            return false;
+        }
+
+        size_t hidden_count = 0;
+
+        auto neighbor_op = Op<Grid::Neighbor>::empty();
+        auto neighbor_it = grid.neighborIterator(cell);
+        while ((neighbor_op = neighbor_it.next()).valid) {
+            Grid::Neighbor neighbor = neighbor_op.get();
+            if ((*neighbor.cell).display_type != CellDisplayType::cdt_hidden) {
+                continue;
+            }
+
+            if (isSelectedOp(neighbor.loc, applied_ops)) {
+                continue;
+            }
+
+            ++hidden_count;
+        }
+
+        if (cell.eff_number - applied_ops.len == hidden_count) {
+            bool did_work = false;
+
+            auto neighbor_op = Op<Grid::Neighbor>::empty();
+            auto neighbor_it = grid.neighborIterator(cell);
+            while ((neighbor_op = neighbor_it.next()).valid) {
+                Grid::Neighbor neighbor = neighbor_op.get();
+                if ((*neighbor.cell).display_type !=
+                    CellDisplayType::cdt_hidden) {
+                    continue;
+                }
+
+                if (isSelectedOp(neighbor.loc, applied_ops)) {
+                    continue;
+                }
+
+                flagCell(grid, neighbor.loc);
+                did_work = true;
+            }
+
+            return did_work;
+        }
+
+        return false;
+    }
+
+    auto revealPossibleCells(Grid grid, Cell &cell,
+                             Slice<CellOptions> applied_ops) -> bool {
+        bool did_work = false;
+
+        if (cell.eff_number == applied_ops.len) {
+            auto neighbor_op = Op<Grid::Neighbor>::empty();
+            auto neighbor_it = grid.neighborIterator(cell);
+            while ((neighbor_op = neighbor_it.next()).valid) {
+                Grid::Neighbor neighbor = neighbor_op.get();
+                if ((*neighbor.cell).display_type !=
+                    CellDisplayType::cdt_hidden) {
+                    continue;
+                }
+
+                if (isSelectedOp(neighbor.loc, applied_ops)) {
+                    continue;
+                }
+
+                uncoverSelfAndNeighbors(grid, neighbor.loc);
+                did_work = true;
+            }
         }
         return did_work;
+    }
+
+    auto isSelectedOp(Location loc, Slice<CellOptions> applied_ops) -> bool {
+        for (auto &applied_op : applied_ops) {
+            for (auto &mine_op : applied_op.mine_options) {
+                if (mine_op.eql(loc)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     auto isValidOp(CellOptions next_op, Location cur_loc,

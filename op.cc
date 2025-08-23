@@ -1,6 +1,7 @@
 #pragma once
 
 #include <assert.h>
+#include <utility> // for std::move
 
 template <typename T> struct RefToPtr {
     T val;
@@ -19,18 +20,32 @@ template <typename T> struct RefToPtr<T &> {
 template <typename T> struct Op {
     struct Default {};
 
-    union {
-        Default d_val;
-        RefToPtr<T> t_val;
-    };
+    char val[sizeof(T)];
     bool valid;
 
-    Op(T val) : t_val(val), valid(true) {}
-    Op(Default val) : d_val(val), valid(false) {}
+    Op(T const &val) : val{}, valid(true) {
+        T *target = static_cast<T *>(static_cast<void *>(this->val));
+        *target = val;
+    }
+    Op(T &&val) : val{}, valid(true) {
+        T *target = static_cast<T *>(static_cast<void *>(this->val));
+        *target = std::move(val);
+    }
+    Op(Default val) : val{}, valid(false) {}
 
-    inline auto get() -> T {
+    ~Op() {
+        if (this->valid) {
+            T *target = static_cast<T *>(static_cast<void *>(this->val));
+            T disposal = std::move(*target);
+            (void)disposal; // moved target here to allow calling destructor
+        }
+    }
+
+    inline auto get() -> T & {
         assert(this->valid && "Accessing invalid optional");
-        return this->t_val;
+
+        T *target = static_cast<T *>(static_cast<void *>(this->val));
+        return *target;
     }
 
     static auto empty() -> Op { return Op{Default{}}; }

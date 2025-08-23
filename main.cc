@@ -1,5 +1,6 @@
 #include "arena.cc"
 #include "dirutils.cc"
+#include "graphics.cc"
 #include "grid.cc"
 #include "one_of_aware.cc"
 #include "op.cc"
@@ -89,7 +90,7 @@ auto show_hidden_cells(Grid grid, size_t row, size_t col, void *) -> bool {
     return false;
 }
 
-int main() {
+auto testGrid() -> void {
     srand(0);
 
     Arena arena{MEGABYTES(10)};
@@ -109,6 +110,53 @@ int main() {
 
     printGrid(grid);
     printf("The grid %s solvable\n", is_solvable ? "is" : "is not");
+}
+
+void handle_error(int error, char const *description) {
+    fprintf(stderr, "GLFW Error (%d)): %s\n", error, description);
+}
+
+struct WindowContext {};
+
+int main() {
+    testGrid();
+
+    GLFW glfw{&handle_error};
+
+    WindowContext ctx;
+    Window<WindowContext> window =
+        glfw.makeWindow<WindowContext>(800, 600, "Hello, world", &ctx);
+
+    glFrontFace(GL_CCW);
+    glClearColor(0.0, 0.0, 0.0, 0.0);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    window.setPos(500, 500);
+    window.show();
+
+    Dims tex_dims{100, 600};
+    Texture t{};
+    t.solidColor2D(Color{255, 255, 150}, tex_dims);
+
+    QuadProgram p = window.quadProgram();
+    p.swapTexture(std::move(t));
+
+    double last_time = glfwGetTime();
+    while (!window.shouldClose()) {
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        window.renderQuad(p, Location{15, 15}, tex_dims);
+        window.pollAndSwap();
+
+        double next_time = glfwGetTime();
+
+        double delta_time = next_time - last_time;
+        last_time = next_time;
+
+        if (window.isKeyPressed(GLFW_KEY_Q)) {
+            window.close();
+        }
+    }
 
     return 0;
 }

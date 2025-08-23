@@ -43,7 +43,6 @@ if ! [[ -z "$FUNCTIONS" ]] ; then
     echo "}" >> $OUT_FILE
 fi
 
-
 echo "Building minesweeper"
 
-g++ -g -Wall -Wpedantic -std=c++17 main.cc -o minesweeper
+g++ -g -Wall -Wpedantic -std=c++17 main.cc -o minesweeper -lglfw -lGL

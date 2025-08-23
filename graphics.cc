@@ -56,6 +56,29 @@ void main() {
 }
 )";
 
+struct GLFW {
+    GLFW(GLFWerrorfun callback) {
+        glfwSetErrorCallback(callback);
+
+        int res = glfwInit();
+        if (res < 0) {
+            fprintf(stderr, "Failed to init glfw");
+            EXIT(1);
+        }
+
+        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    }
+
+    ~GLFW() { glfwTerminate(); }
+
+    auto setErrorCallback(GLFWerrorfun callback) -> void {
+        glfwSetErrorCallback(callback);
+    }
+};
+
 struct Shader {
     GLuint shader;
 
@@ -186,10 +209,10 @@ struct Color {
     unsigned char b;
 };
 
-struct Texture {
+struct Texture2D {
     GLuint texture;
 
-    Texture() : texture(0) {
+    Texture2D() : texture(0) {
         glGenTextures(1, &this->texture);
 
         this->useTex();
@@ -198,10 +221,10 @@ struct Texture {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     }
-    Texture(Texture const &other) = delete;
-    Texture(Texture &&other) : texture(other.texture) { other.texture = 0; }
+    Texture2D(Texture2D const &other) = delete;
+    Texture2D(Texture2D &&other) : texture(other.texture) { other.texture = 0; }
 
-    ~Texture() {
+    ~Texture2D() {
         if (texture) {
             printf("Deleting a texture\n");
         }
@@ -209,8 +232,8 @@ struct Texture {
         glDeleteTextures(1, &this->texture);
     }
 
-    Texture &operator=(Texture &&other) {
-        Texture tmp{std::move(*this)};
+    Texture2D &operator=(Texture2D &&other) {
+        Texture2D tmp{std::move(*this)};
 
         this->texture = other.texture;
         other.texture = 0;
@@ -220,7 +243,7 @@ struct Texture {
 
     auto useTex() -> void { glBindTexture(GL_TEXTURE_2D, this->texture); }
 
-    auto solidColor2D(Color color, Dims dims) -> void {
+    auto solidColor(Color color, Dims dims) -> void {
         glBindTexture(GL_TEXTURE_2D, this->texture);
 
         size_t data_len = dims.width * dims.height * 3;
@@ -236,6 +259,10 @@ struct Texture {
                      GL_RGB, GL_UNSIGNED_BYTE, data);
 
         delete[] data;
+    }
+
+    auto grayscale(unsigned char g, Dims dims) {
+        solidColor(Color{g, g, g}, dims);
     }
 };
 
@@ -255,10 +282,10 @@ struct QuadProgram {
     GLuint vao;
     GLuint vbo;
 
-    Texture texture;
+    Texture2D texture;
 
     QuadProgram(Program &&program, GLint n_pos, GLint n_tex_p, GLint tex,
-                Texture &&texture)
+                Texture2D &&texture)
         : program(std::move(program)), n_pos(n_pos), n_tex_p(n_tex_p), tex(tex),
           texture(std::move(texture)) {
         glGenVertexArrays(1, &this->vao);
@@ -347,42 +374,134 @@ struct QuadProgram {
         glBufferData(GL_ARRAY_BUFFER, sizeof(data), data, GL_STATIC_DRAW);
     }
 
-    auto swapTexture(Texture &&other) -> Texture {
-        Texture tmp{std::move(this->texture)};
+    auto swapTexture(Texture2D &&other) -> Texture2D {
+        Texture2D tmp{std::move(this->texture)};
         this->texture = std::move(other);
         return tmp;
     }
 };
 
-struct GLFW;
+template <typename T> struct Window;
+
+template <typename T> struct HasFramebufferSizeCallback {
+    template <typename U,
+              typename = decltype(std::declval<U>().framebufferSizeCallback(
+                  std::declval<Window<U> &>(), std::declval<int>(),
+                  std::declval<int>()))>
+    static std::true_type test(int);
+
+    template <typename> static std::false_type test(...);
+
+    static constexpr bool value = decltype(test<T>(std::declval<int>()))::value;
+};
+
+template <typename T> struct HasCursorPosCallback {
+    template <typename U,
+              typename = decltype(std::declval<U>().cursorPosCallback(
+                  std::declval<Window<U> &>(), std::declval<double>(),
+                  std::declval<double>()))>
+    static std::true_type test(int);
+
+    template <typename> static std::false_type test(...);
+
+    static constexpr bool value = decltype(test<T>(std::declval<int>()))::value;
+};
+
+template <typename T> struct HasMouseButtonCallback {
+    template <typename U,
+              typename = decltype(std::declval<U>().mouseButtonCallback(
+                  std::declval<Window<U> &>(), std::declval<int>(),
+                  std::declval<int>(), std::declval<int>()))>
+    static std::true_type test(int);
+
+    template <typename> static std::false_type test(...);
+
+    static constexpr bool value = decltype(test<T>(std::declval<int>()))::value;
+};
+
+template <typename T> struct HasRender {
+    template <typename U, typename = decltype(std::declval<U>().render(
+                              std::declval<Window<U> &>()))>
+    static std::true_type test(int);
+
+    template <typename> static std::false_type test(...);
+
+    static constexpr bool value = decltype(test<T>(std::declval<int>()))::value;
+};
+
+auto getInitWindow(int width, int height, char const *title) -> GLFWwindow * {
+    GLFWwindow *w = glfwCreateWindow(width, height, title, nullptr, nullptr);
+    glfwMakeContextCurrent(w);
+
+    // During init, enable debug output
+    glEnable(GL_DEBUG_OUTPUT);
+    glDebugMessageCallback(MessageCallback, 0);
+
+    return w;
+}
 
 template <typename T> struct Window {
-    GLFW &ref; // ensure we have initialized
     GLFWwindow *window;
-    T *ctx;
-
     Shader QuadFragShader;
     Shader QuadVertShader;
+    T ctx;
 
-    Window(GLFW &ref, int width, int height, char const *title, T *ctx)
-        : ref(ref),
-          window(glfwCreateWindow(width, height, title, nullptr, nullptr)),
-          ctx(ctx) {
-        glfwSetWindowUserPointer(this->window, this->ctx);
-        glfwMakeContextCurrent(this->window);
+    bool needs_render;
 
-        // During init, enable debug output
-        glEnable(GL_DEBUG_OUTPUT);
-        glDebugMessageCallback(MessageCallback, 0);
-
-        this->QuadVertShader =
-            Shader::fromSource(GL_VERTEX_SHADER, STR_SLICE(QuadVertShaderText));
-
-        this->QuadFragShader = Shader::fromSource(
-            GL_FRAGMENT_SHADER, STR_SLICE(QuadFragShaderText));
+    template <typename... Args>
+    Window(int width, int height, char const *title, Args... args)
+        : window(getInitWindow(width, height, title)),
+          QuadFragShader{Shader::fromSource(GL_VERTEX_SHADER,
+                                            STR_SLICE(QuadVertShaderText))},
+          QuadVertShader{Shader::fromSource(GL_FRAGMENT_SHADER,
+                                            STR_SLICE(QuadFragShaderText))},
+          ctx(*this, args...), needs_render(true) {
+        glfwSetFramebufferSizeCallback(this->window, &windowFramebufferSize);
+        glfwSetCursorPosCallback(this->window, &windowCursorPos);
+        glfwSetMouseButtonCallback(this->window, &windowMouseButton);
     }
 
     ~Window() { glfwDestroyWindow(this->window); }
+
+    static void windowFramebufferSize(GLFWwindow *window, int width,
+                                      int height) {
+        if constexpr (HasFramebufferSizeCallback<T>::value) {
+            void *user_ptr = glfwGetWindowUserPointer(window);
+            if (user_ptr == nullptr) {
+                return;
+            }
+
+            Window *wrapped = static_cast<Window *>(user_ptr);
+            wrapped->ctx.framebufferSizeCallback(*wrapped, width, height);
+        }
+    }
+
+    static void windowCursorPos(GLFWwindow *window, double xpos, double ypos) {
+        if constexpr (HasCursorPosCallback<T>::value) {
+            void *user_ptr = glfwGetWindowUserPointer(window);
+            if (user_ptr == nullptr) {
+                return;
+            }
+
+            Window *wrapped = static_cast<Window *>(user_ptr);
+            wrapped->ctx->cursorPosCallback(*wrapped, xpos, ypos);
+        }
+    }
+
+    static void windowMouseButton(GLFWwindow *window, int button, int action,
+                                  int mods) {
+        if constexpr (HasMouseButtonCallback<T>::value) {
+            void *user_ptr = glfwGetWindowUserPointer(window);
+            if (user_ptr == nullptr) {
+                return;
+            }
+
+            Window *wrapped = static_cast<Window *>(user_ptr);
+            wrapped->ctx->mouseButtonCallback(*wrapped, button, action, mods);
+        }
+    }
+
+    auto setPin() -> void { glfwSetWindowUserPointer(this->window, this); }
 
     auto shouldClose() -> bool { return glfwWindowShouldClose(this->window); }
 
@@ -392,15 +511,19 @@ template <typename T> struct Window {
 
     auto show() -> void { glfwShowWindow(this->window); }
 
-    auto pollAndSwap() -> void {
-        glfwPollEvents();
-        glfwSwapBuffers(this->window);
+    auto render() -> void {
+        if (this->needs_render) {
+            this->needs_render = false;
+            this->renderNow();
+        }
     }
 
-    auto getContext() -> T * {
-        void *user_ptr = glfwGetWindowUserPointer(this->window);
-        assert(user_ptr != nullptr && "Invalid user pointer");
-        return static_cast<T *>(user_ptr);
+    auto renderNow() -> void {
+        glClear(GL_COLOR_BUFFER_BIT);
+        if constexpr (HasRender<T>::value) {
+            this->ctx.render(*this);
+        }
+        glfwSwapBuffers(this->window);
     }
 
     auto getKey(int key) -> int { return glfwGetKey(this->window, key); }
@@ -423,18 +546,6 @@ template <typename T> struct Window {
         return Dims{static_cast<size_t>(width), static_cast<size_t>(height)};
     }
 
-    auto setFramebufferSizeCallback(GLFWcursorposfun callback) -> void {
-        glfwSetFramebufferSizeCallback(this->window, callback);
-    }
-
-    auto setCursorPosCallback(GLFWcursorposfun callback) -> void {
-        glfwSetCursorPosCallback(this->window, callback);
-    }
-
-    auto setMouseButtonCallback(GLFWmousebuttonfun callback) -> void {
-        glfwSetMouseButtonCallback(this->window, callback);
-    }
-
     auto quadProgramOp() -> Op<QuadProgram> {
         Program p{};
 
@@ -449,7 +560,7 @@ template <typename T> struct Window {
         GLint n_tex_p = glGetAttribLocation(p.program, "n_tex_p");
         GLint tex = glGetUniformLocation(p.program, "tex");
 
-        return QuadProgram{std::move(p), n_pos, n_tex_p, tex, Texture{}};
+        return QuadProgram{std::move(p), n_pos, n_tex_p, tex, Texture2D{}};
     }
 
     auto quadProgram() -> QuadProgram {
@@ -462,34 +573,5 @@ template <typename T> struct Window {
     auto renderQuad(QuadProgram &p, Location loc, Dims dims) -> void {
         Dims window_dims = this->getDims();
         p.renderAt(loc, dims, window_dims);
-    }
-};
-
-struct GLFW {
-    GLFW(GLFWerrorfun callback) {
-        glfwSetErrorCallback(callback);
-
-        int res = glfwInit();
-        if (res < 0) {
-            fprintf(stderr, "Failed to init glfw");
-            EXIT(1);
-        }
-
-        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    }
-
-    ~GLFW() { glfwTerminate(); }
-
-    auto setErrorCallback(GLFWerrorfun callback) -> void {
-        glfwSetErrorCallback(callback);
-    }
-
-    template <typename T>
-    auto makeWindow(int width, int height, char const *title, T *ctx)
-        -> Window<T> {
-        return Window<T>{*this, width, height, title, ctx};
     }
 };

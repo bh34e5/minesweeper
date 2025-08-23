@@ -116,37 +116,49 @@ void handle_error(int error, char const *description) {
     fprintf(stderr, "GLFW Error (%d)): %s\n", error, description);
 }
 
-struct WindowContext {};
+struct WindowContext {
+    typedef Window<WindowContext> ThisWindow;
+
+    QuadProgram quad_program;
+    Dims tex_dims;
+
+    WindowContext(ThisWindow &window, Dims tex_dims)
+        : quad_program(window.quadProgram()), tex_dims(tex_dims) {
+        glFrontFace(GL_CCW);
+        glClearColor(0.0, 0.0, 0.0, 0.0);
+
+        this->quad_program.texture.grayscale(120, tex_dims);
+    }
+
+    void framebufferSizeCallback(ThisWindow &window, int width, int height) {
+        assert(width >= 0 && "Invalid width");
+        assert(height >= 0 && "Invalid height");
+
+        glViewport(0, 0, width, height);
+
+        window.renderNow();
+    }
+
+    auto render(ThisWindow &window) -> void {
+        window.renderQuad(this->quad_program, Location{15, 15}, this->tex_dims);
+    }
+};
 
 int main() {
     testGrid();
 
     GLFW glfw{&handle_error};
 
-    WindowContext ctx;
-    Window<WindowContext> window =
-        glfw.makeWindow<WindowContext>(800, 600, "Hello, world", &ctx);
-
-    glFrontFace(GL_CCW);
-    glClearColor(0.0, 0.0, 0.0, 0.0);
-    glClear(GL_COLOR_BUFFER_BIT);
-
+    Window<WindowContext> window{800, 600, "Hello, world", Dims{100, 500}};
+    window.setPin();
     window.setPos(500, 500);
     window.show();
 
-    Dims tex_dims{100, 600};
-    Texture t{};
-    t.solidColor2D(Color{255, 255, 150}, tex_dims);
-
-    QuadProgram p = window.quadProgram();
-    p.swapTexture(std::move(t));
-
     double last_time = glfwGetTime();
     while (!window.shouldClose()) {
-        glClear(GL_COLOR_BUFFER_BIT);
+        window.render();
 
-        window.renderQuad(p, Location{15, 15}, tex_dims);
-        window.pollAndSwap();
+        glfwPollEvents();
 
         double next_time = glfwGetTime();
 

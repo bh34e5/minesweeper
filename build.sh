@@ -45,4 +45,18 @@ fi
 
 echo "Building minesweeper"
 
-g++ -g -Wall -Wpedantic -std=c++17 main.cc -o minesweeper -lglfw -lGL
+LIBS=""
+
+case "$(uname -s)" in
+    Darwin)
+        LIBS="-lglfw -framework OpenGL"
+        ;;
+    Linux)
+        LIBS="-lglfw -lGL"
+        ;;
+    *)
+        echo "Unrecognized operating system"
+        ;;
+esac
+
+g++ -g -Wall -Wpedantic -std=c++17 main.cc -o minesweeper $LIBS

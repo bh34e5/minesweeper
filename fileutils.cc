@@ -49,7 +49,7 @@ struct FileArgs {
 };
 
 auto getFileArgs(Arena &arena, char const *in_name) -> FileArgs {
-    StrSlice in_slice = str_slice(in_name);
+    StrSlice in_slice = strSlice(in_name);
 
     if (!endsWith(in_slice, PAT_SUFFIX)) {
         fprintf(stderr, "Invalid in file %s\n", in_name);
@@ -85,7 +85,7 @@ auto makeDirIfNotExists(Arena &arena, StrSlice dir_name) -> void {
     auto marker = arena.mark();
     char const *name_str = toZString(arena, dir_name);
 
-    struct stat stat_struct{};
+    struct stat stat_struct {};
     int ret = stat(name_str, &stat_struct);
     if (ret != 0 || ((stat_struct.st_mode & S_IFDIR) == 0)) {
         if (mkdir(name_str, 0755) != 0) {

@@ -114,6 +114,13 @@ struct Dims {
     size_t height;
 
     inline auto area() -> size_t { return this->width * this->height; }
+
+    static auto fromRect(Location ul, Location br) -> Dims {
+        assert(ul.row <= br.row && "Invalid rect");
+        assert(ul.col <= br.col && "Invalid rect");
+
+        return Dims{br.col - ul.col, br.row - ul.row};
+    }
 };
 
 auto neighborOp(Location loc, Dims dims, Dir dir) -> Op<Location> {

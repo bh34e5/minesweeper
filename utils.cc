@@ -20,3 +20,17 @@ template <typename T> auto clamp(T min_val, T val, T max_val) -> T {
 
     return val;
 }
+
+template <typename T> auto inRange(T min_val, T val, T max_val) -> bool {
+    assert(min_val <= max_val && "Invalid range");
+
+    if (val < min_val) {
+        return false;
+    }
+
+    if (val > max_val) {
+        return false;
+    }
+
+    return true;
+}

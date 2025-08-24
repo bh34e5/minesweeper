@@ -38,6 +38,31 @@ auto getContents(Arena &arena, char const *filename) -> Op<StrSlice> {
     return StrSlice{ptr, file_len};
 }
 
+auto getContentsZ(Arena &arena, char const *filename) -> char const * {
+    FILE *f = fopen(filename, "r");
+    if (f == nullptr) {
+        return nullptr;
+    }
+
+    fseek(f, 0, SEEK_END);
+    size_t file_len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    size_t mark = arena.len;
+    char *ptr = arena.pushTN<char>(file_len + 1);
+
+    size_t nread = fread(ptr, file_len, 1, f);
+    if (nread != 1) {
+        arena.reset(mark);
+        return nullptr;
+    }
+    ptr[file_len] = '\0';
+
+    fclose(f);
+
+    return ptr;
+}
+
 struct FileArgs {
     StrSlice in_name;
     StrSlice in_root;

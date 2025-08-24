@@ -216,6 +216,7 @@ struct Context {
     size_t mark;
 
     QuadProgram quad_program;
+    BakedFont baked_font;
     Texture2D button;
     Texture2D background;
 
@@ -227,13 +228,20 @@ struct Context {
     Arena grid_arena;
     Grid grid;
 
+    static size_t const font_pixel_height = 30;
+
     Context(ThisWindow &window, Arena &&arena, Arena &&grid_arena)
         : arena(std::move(arena)), mark(this->arena.len),
-          quad_program(window.quadProgram()), button{}, background{},
-          mouse_down(false), down_mouse_pos{},
+          quad_program(window.quadProgram()),
+          baked_font{window.bakedFont(this->arena, "./fonts/Roboto-Black.ttf",
+                                      font_pixel_height)},
+          button{}, background{}, mouse_down(false), down_mouse_pos{},
           ev_sentinel{Event::Type::et_empty},
           el_sentinel{Element::Type::et_empty},
           grid_arena(std::move(grid_arena)), grid{} {
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
         glFrontFace(GL_CCW);
         glClearColor(0.0, 0.0, 0.0, 0.0);
 
@@ -337,6 +345,12 @@ struct Context {
             Element *el = this->arena.pushT(Element{
                 Element::Type::et_generate_grid, button_loc, button_dims});
 
+            this->baked_font.setColor(Color{255, 255, 255});
+            this->baked_font.renderTextBaseline(
+                Location{render_loc.row + 10 + font_pixel_height,
+                         render_loc.col + 10},
+                STR_SLICE("Hi I'm Text"), window.getDims());
+
             this->el_sentinel.push(el);
         }
     }
@@ -393,7 +407,7 @@ int main() {
 
     GLFW glfw{&handle_error};
 
-    Arena window_arena{KILOBYTES(4)};
+    Arena window_arena{MEGABYTES(4)};
     Arena grid_arena{KILOBYTES(4)};
 
     Window<Context> window{800, 600, "Hello, world", std::move(window_arena),

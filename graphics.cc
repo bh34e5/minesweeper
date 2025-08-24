@@ -1,9 +1,14 @@
 #pragma once
 
+#include "arena.cc"
 #include "dirutils.cc"
+#include "fileutils.cc"
 #include "op.cc"
 #include "strslice.cc"
 #include "utils.cc"
+
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "extern/stb_truetype.h"
 
 #define GL_GLEXT_PROTOTYPES
 #include <GL/gl.h>
@@ -53,6 +58,22 @@ out vec4 color;
 
 void main() {
     color = texture(tex, tex_p);
+}
+)";
+
+char const FontFragShaderText[] = R"(
+#version 330 core
+
+in vec2 tex_p;
+
+uniform vec3 font_color;
+uniform sampler2D tex;
+
+out vec4 color;
+
+void main() {
+    float alpha = texture(tex, tex_p).r;
+    color = vec4(font_color, alpha);
 }
 )";
 
@@ -244,7 +265,7 @@ struct Texture2D {
     auto useTex() -> void { glBindTexture(GL_TEXTURE_2D, this->texture); }
 
     auto solidColor(Color color, Dims dims) -> void {
-        glBindTexture(GL_TEXTURE_2D, this->texture);
+        this->useTex();
 
         size_t data_len = dims.width * dims.height * 3;
         unsigned char *data = new unsigned char[data_len];
@@ -263,6 +284,13 @@ struct Texture2D {
 
     auto grayscale(unsigned char g, Dims dims) {
         solidColor(Color{g, g, g}, dims);
+    }
+
+    auto bindAlphaData(Dims dims, unsigned char *pixels) -> void {
+        this->useTex();
+
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, dims.width, dims.height, 0,
+                     GL_RED, GL_UNSIGNED_BYTE, pixels);
     }
 };
 
@@ -342,15 +370,56 @@ struct QuadProgram {
         return *this;
     }
 
-    auto renderAt(Location loc, Dims dims, Dims window_dims) {
+    auto renderAt(Location rect_loc, Dims rect_dims, float tex_loc_x0,
+                  float tex_loc_y0, float tex_loc_x1, float tex_loc_y1,
+                  Dims window_dims) -> void {
         this->program.useProgram();
-        this->setPosition(loc, dims, window_dims);
+        this->setPosition(rect_loc, rect_dims, tex_loc_x0, tex_loc_y0,
+                          tex_loc_x1, tex_loc_y1, window_dims);
 
         glActiveTexture(GL_TEXTURE0);
         glUniform1i(this->tex, 0); // GL_TEXTURE0
         this->texture.useTex();    // bind texture to GL_TEXTURE0
 
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    }
+
+    auto renderAt(Location loc, Dims dims, Dims window_dims) -> void {
+        this->renderAt(loc, dims, 0.0f, 0.0f, 1.0f, 1.0f, window_dims);
+    }
+
+    auto setPosition(Location rect_loc, Dims rect_dims, float tex_loc_x0,
+                     float tex_loc_y0, float tex_loc_x1, float tex_loc_y1,
+                     Dims window_dims) -> void {
+        glBindVertexArray(this->vao);
+
+        Location rnw = rect_loc;
+        Location rne = Location{rect_loc.row, rect_loc.col + rect_dims.width};
+        Location rsw = Location{rect_loc.row + rect_dims.height, rect_loc.col};
+        Location rse = Location{rect_loc.row + rect_dims.height,
+                                rect_loc.col + rect_dims.width};
+
+        size_t ww = window_dims.width;
+        size_t wh = window_dims.height;
+
+        GLfloat nw_r = toGlLoc(wh - rnw.row, wh);
+        GLfloat nw_c = toGlLoc(rnw.col, ww);
+        GLfloat ne_r = toGlLoc(wh - rne.row, wh);
+        GLfloat ne_c = toGlLoc(rne.col, ww);
+        GLfloat sw_r = toGlLoc(wh - rsw.row, wh);
+        GLfloat sw_c = toGlLoc(rsw.col, ww);
+        GLfloat se_r = toGlLoc(wh - rse.row, wh);
+        GLfloat se_c = toGlLoc(rse.col, ww);
+
+        GLfloat data[] = {
+            nw_c, nw_r, tex_loc_x0, tex_loc_y0, //
+            sw_c, sw_r, tex_loc_x0, tex_loc_y1, //
+            ne_c, ne_r, tex_loc_x1, tex_loc_y0, //
+            se_c, se_r, tex_loc_x1, tex_loc_y1, //
+        };
+
+        glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(data), data, GL_STATIC_DRAW);
     }
 
     auto setPosition(Location loc, Dims dims, Dims window_dims) -> void {
@@ -388,6 +457,62 @@ struct QuadProgram {
     auto withTexture(Texture2D &texture) -> WithGuard {
         this->swapTexture(texture);
         return WithGuard{*this, texture};
+    }
+};
+
+inline auto glColor(unsigned char c) -> GLfloat {
+    GLfloat c_float = c;
+    return c_float / 255.0f;
+}
+
+struct BakedFont {
+    Dims bmp_dims;
+    stbtt_bakedchar chardata[96]; // printable characters
+    QuadProgram quad_program;
+    GLint font_color;
+
+    BakedFont(Dims bmp_dims, stbtt_bakedchar chardata[96],
+              QuadProgram &&quad_progam, GLint font_color)
+        : bmp_dims{bmp_dims}, chardata{}, quad_program{std::move(quad_progam)},
+          font_color(font_color) {
+        memcpy(this->chardata, chardata, 96 * sizeof(*chardata));
+    }
+
+    auto setColor(Color color) -> void {
+        this->quad_program.program.useProgram();
+
+        GLfloat color_vec[3]{
+            glColor(color.r),
+            glColor(color.g),
+            glColor(color.b),
+        };
+
+        glUniform3fv(this->font_color, 1, color_vec);
+    }
+
+    auto renderTextBaseline(Location loc, StrSlice text, Dims window_dims)
+        -> void {
+        float xpos = loc.col;
+        float ypos = loc.row;
+        for (char c : text) {
+            // fallback to Space
+            char render_c = inRange<char>(32, c, 127) ? c : 32;
+
+            stbtt_aligned_quad q;
+            stbtt_GetBakedQuad(this->chardata, this->bmp_dims.width,
+                               this->bmp_dims.height, render_c - 32, &xpos,
+                               &ypos, &q, 1);
+
+            Location char_loc_ul{static_cast<size_t>(q.y0),
+                                 static_cast<size_t>(q.x0)};
+            Location char_loc_br{static_cast<size_t>(q.y1),
+                                 static_cast<size_t>(q.x1)};
+
+            Dims char_dims = Dims::fromRect(char_loc_ul, char_loc_br);
+
+            this->quad_program.renderAt(char_loc_ul, char_dims, q.s0, q.t0,
+                                        q.s1, q.t1, window_dims);
+        }
     }
 };
 
@@ -462,8 +587,9 @@ auto getInitWindow(int width, int height, char const *title) -> GLFWwindow * {
 
 template <typename T> struct Window {
     GLFWwindow *window;
-    Shader QuadFragShader;
     Shader QuadVertShader;
+    Shader QuadFragShader;
+    Shader FontFragShader;
     T ctx;
 
     bool needs_render;
@@ -471,10 +597,12 @@ template <typename T> struct Window {
     template <typename... Args>
     Window(int width, int height, char const *title, Args &&...args)
         : window(getInitWindow(width, height, title)),
-          QuadFragShader{Shader::fromSource(GL_VERTEX_SHADER,
+          QuadVertShader{Shader::fromSource(GL_VERTEX_SHADER,
                                             STR_SLICE(QuadVertShaderText))},
-          QuadVertShader{Shader::fromSource(GL_FRAGMENT_SHADER,
+          QuadFragShader{Shader::fromSource(GL_FRAGMENT_SHADER,
                                             STR_SLICE(QuadFragShaderText))},
+          FontFragShader{Shader::fromSource(GL_FRAGMENT_SHADER,
+                                            STR_SLICE(FontFragShaderText))},
           ctx(*this, std::forward<Args>(args)...), needs_render(true) {
         glfwSetFramebufferSizeCallback(this->window, &windowFramebufferSize);
         glfwSetCursorPosCallback(this->window, &windowCursorPos);
@@ -610,6 +738,53 @@ template <typename T> struct Window {
         Op<QuadProgram> op_program = Window::quadProgramOp();
 
         QuadProgram result{std::move(op_program.get())};
+        return result;
+    }
+
+    auto bakedFontOp(Arena &arena, char const *font_file, float pixel_height)
+        -> Op<BakedFont> {
+        auto marker = arena.mark();
+
+        char const *file_contents = getContentsZ(arena, font_file);
+        unsigned char const *casted = static_cast<unsigned char const *>(
+            static_cast<void const *>(file_contents));
+
+        stbtt_bakedchar chardata[96]; // printable characters
+        Dims bmp_dims{512, 512};
+        unsigned char *pixels = arena.pushTN<unsigned char>(bmp_dims.area());
+
+        stbtt_BakeFontBitmap(casted, 0, pixel_height, pixels, bmp_dims.width,
+                             bmp_dims.height, 32 /* space */,
+                             96 /* 127 - 32 + 1 */, chardata);
+
+        Program p{};
+
+        p.attachShader(this->QuadVertShader);
+        p.attachShader(this->FontFragShader);
+        if (!p.link()) {
+            return Op<BakedFont>::empty();
+        }
+
+        glUseProgram(p.program);
+        GLint n_pos = glGetAttribLocation(p.program, "n_pos");
+        GLint n_tex_p = glGetAttribLocation(p.program, "n_tex_p");
+        GLint font_color = glGetUniformLocation(p.program, "font_color");
+        GLint tex = glGetUniformLocation(p.program, "tex");
+
+        QuadProgram quad_program{std::move(p), n_pos, n_tex_p, tex,
+                                 Texture2D{}};
+        quad_program.texture.bindAlphaData(bmp_dims, pixels);
+
+        return BakedFont{bmp_dims, chardata, std::move(quad_program),
+                         font_color};
+    }
+
+    auto bakedFont(Arena &arena, char const *font_file, float pixel_height)
+        -> BakedFont {
+        Op<BakedFont> op_font =
+            Window::bakedFontOp(arena, font_file, pixel_height);
+
+        BakedFont result{std::move(op_font.get())};
         return result;
     }
 

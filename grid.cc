@@ -113,7 +113,12 @@ struct Grid {
 };
 
 auto flagCell(Grid grid, Location loc) -> void {
-    grid[loc].display_type = CellDisplayType::cdt_flag;
+    Cell &cell = grid[loc];
+    if (cell.display_type == CellDisplayType::cdt_flag) {
+        return;
+    }
+
+    cell.display_type = CellDisplayType::cdt_flag;
 
     auto neighbor_op = Op<Grid::Neighbor>::empty();
     auto neighbor_it = grid.neighborIterator(loc);
@@ -125,6 +130,26 @@ auto flagCell(Grid grid, Location loc) -> void {
 auto flagCell(Grid grid, Cell &cell) -> void {
     Location cell_loc = grid.cellLocation(cell);
     flagCell(grid, cell_loc);
+}
+
+auto unflagCell(Grid grid, Location loc) -> void {
+    Cell &cell = grid[loc];
+    if (cell.display_type != CellDisplayType::cdt_flag) {
+        return;
+    }
+
+    cell.display_type = CellDisplayType::cdt_hidden;
+
+    auto neighbor_op = Op<Grid::Neighbor>::empty();
+    auto neighbor_it = grid.neighborIterator(loc);
+    while ((neighbor_op = neighbor_it.next()).valid) {
+        ++(*neighbor_op.get().cell).eff_number;
+    }
+}
+
+auto unflagCell(Grid grid, Cell &cell) -> void {
+    Location cell_loc = grid.cellLocation(cell);
+    unflagCell(grid, cell_loc);
 }
 
 auto uncoverSelfAndNeighbors(Grid grid, Location loc) -> void {

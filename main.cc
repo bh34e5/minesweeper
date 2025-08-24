@@ -163,13 +163,18 @@ struct Context {
         et_empty,
         et_mouse_press,
         et_mouse_release,
+        et_right_mouse_press,
+        et_right_mouse_release,
     };
 
     struct Element {
         enum Type {
             et_empty,
             et_background,
-            et_grid_cell,
+            et_empty_grid_cell,
+            et_revealed_grid_cell,
+            et_flagged_grid_cell,
+            et_maybe_flagged_grid_cell,
             et_width_inc,
             et_width_dec,
             et_height_inc,
@@ -183,12 +188,18 @@ struct Context {
         Dims dims;
         StrSlice text;
         Color color;
+        Location cell_loc;
 
-        Element(Type type) : type(type), loc{}, dims{}, text{}, color{} {}
+        Element(Type type)
+            : type(type), loc{}, dims{}, text{}, color{}, cell_loc{} {}
         Element(Type type, Location loc, Dims dims)
-            : type(type), loc(loc), dims(dims), text{}, color{} {}
+            : type(type), loc(loc), dims(dims), text{}, color{}, cell_loc{} {}
         Element(Type type, Location loc, StrSlice text, Color color)
-            : type(type), loc(loc), dims{}, text(text), color(color) {}
+            : type(type), loc(loc), dims{}, text(text), color(color),
+              cell_loc{} {}
+        Element(Type type, Location loc, Dims dims, Location cell_loc)
+            : type(type), loc(loc), dims(dims), text{}, color{},
+              cell_loc(cell_loc) {}
 
         auto contains(Location loc) -> bool {
             if (loc.row < this->loc.row) {
@@ -220,9 +231,13 @@ struct Context {
 
     bool mouse_down;
     Location down_mouse_pos;
+    bool right_mouse_down;
+    Location down_right_mouse_pos;
+
     LLEvent ev_sentinel;
     LLElement el_sentinel;
 
+    bool preview_grid;
     size_t width_input;
     size_t height_input;
 
@@ -237,9 +252,10 @@ struct Context {
           baked_font{window.bakedFont(this->arena, "./fonts/Roboto-Black.ttf",
                                       font_pixel_height)},
           button{}, background{}, mouse_down(false), down_mouse_pos{},
+          right_mouse_down(false), down_right_mouse_pos{},
           ev_sentinel{Event::et_empty}, el_sentinel{Element::Type::et_empty},
-          width_input(10), height_input(10), grid_arena(std::move(grid_arena)),
-          grid{} {
+          preview_grid(false), width_input(10), height_input(10),
+          grid_arena(std::move(grid_arena)), grid{} {
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -263,7 +279,7 @@ struct Context {
     }
 
     void mouseButtonCallback(ThisWindow &window, int button, int action, int) {
-        if (button == GLFW_MOUSE_BUTTON_1) {
+        if (button == GLFW_MOUSE_BUTTON_LEFT) {
             if (action == GLFW_PRESS) {
                 LLEvent *ev =
                     this->arena.pushT<LLEvent>(Event{Event::et_mouse_press});
@@ -276,6 +292,21 @@ struct Context {
                     this->arena.pushT<LLEvent>(Event{Event::et_mouse_release});
 
                 this->mouse_down = false;
+                this->ev_sentinel.enqueue(ev);
+            }
+        } else if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+            if (action == GLFW_PRESS) {
+                LLEvent *ev = this->arena.pushT<LLEvent>(
+                    Event{Event::et_right_mouse_press});
+
+                this->right_mouse_down = true;
+                this->down_right_mouse_pos = window.getClampedMouseLocation();
+                this->ev_sentinel.enqueue(ev);
+            } else {
+                LLEvent *ev = this->arena.pushT<LLEvent>(
+                    Event{Event::et_right_mouse_release});
+
+                this->right_mouse_down = false;
                 this->ev_sentinel.enqueue(ev);
             }
         }
@@ -323,8 +354,53 @@ struct Context {
                     Location cell_loc{render_loc.row + r_pos,
                                       render_loc.col + c_pos};
 
+                    Cell &cell = this->grid[r][c];
+
+                    Element::Type et = Element::Type::et_empty;
+                    switch (cell.display_type) {
+                    case CellDisplayType::cdt_hidden: {
+                        et = Element::Type::et_empty_grid_cell;
+                    } break;
+                    case CellDisplayType::cdt_value: {
+                        et = Element::Type::et_revealed_grid_cell;
+                    } break;
+                    case CellDisplayType::cdt_flag: {
+                        et = Element::Type::et_flagged_grid_cell;
+                    } break;
+                    case CellDisplayType::cdt_maybe_flag: {
+                        et = Element::Type::et_maybe_flagged_grid_cell;
+                    } break;
+                    }
+
                     this->pushElement(
-                        {Element::Type::et_grid_cell, cell_loc, cell_dims});
+                        {et, cell_loc, cell_dims, Location{r, c}});
+                }
+            }
+        } else if (this->preview_grid) {
+            size_t cell_padding = 1;
+            size_t r_padding = this->height_input * 2 * cell_padding;
+            size_t c_padding = this->width_input * 2 * cell_padding;
+
+            size_t cell_width =
+                (render_dims.width - c_padding) / this->width_input;
+            size_t cell_height =
+                (render_dims.height - r_padding) / this->height_input;
+
+            Dims cell_dims{cell_width, cell_height};
+
+            for (size_t r = 0; r < this->height_input; ++r) {
+                size_t r_pos =
+                    r * (cell_height + 2 * cell_padding) + cell_padding;
+
+                for (size_t c = 0; c < this->width_input; ++c) {
+                    size_t c_pos =
+                        c * (cell_width + 2 * cell_padding) + cell_padding;
+
+                    Location cell_loc{render_loc.row + r_pos,
+                                      render_loc.col + c_pos};
+
+                    this->pushElement({Element::Type::et_empty_grid_cell,
+                                       cell_loc, cell_dims, Location{r, c}});
                 }
             }
         } else {
@@ -407,9 +483,49 @@ struct Context {
                 auto guard = this->quad_program.withTexture(this->background);
                 this->renderQuad(window, el->val.loc, el->val.dims);
             } break;
-            case Element::Type::et_grid_cell: {
+            case Element::Type::et_empty_grid_cell: {
                 auto guard = this->quad_program.withTexture(this->button);
                 this->renderQuad(window, el->val.loc, el->val.dims);
+            } break;
+            case Element::Type::et_revealed_grid_cell: {
+                {
+                    auto guard =
+                        this->quad_program.withTexture(this->background);
+                    this->renderQuad(window, el->val.loc, el->val.dims);
+                }
+
+                // TODO(bhester): change font color based on the number?
+                this->baked_font.setColor(Color::grayscale(225));
+
+                unsigned char cell_val = this->grid[el->val.cell_loc].number;
+                switch (cell_val) {
+                case 0:
+                    // don't render a number
+                    break;
+                default: {
+                    StrSlice nums = STR_SLICE("12345678");
+                    this->renderText(window, el->val.loc,
+                                     nums.slice(cell_val - 1, cell_val));
+                } break;
+                }
+            } break;
+            case Element::Type::et_flagged_grid_cell: {
+                {
+                    auto guard = this->quad_program.withTexture(this->button);
+                    this->renderQuad(window, el->val.loc, el->val.dims);
+                }
+
+                this->baked_font.setColor(Color::grayscale(0));
+                this->renderText(window, el->val.loc, STR_SLICE("F"));
+            } break;
+            case Element::Type::et_maybe_flagged_grid_cell: {
+                {
+                    auto guard = this->quad_program.withTexture(this->button);
+                    this->renderQuad(window, el->val.loc, el->val.dims);
+                }
+
+                this->baked_font.setColor(Color::grayscale(0));
+                this->renderText(window, el->val.loc, STR_SLICE("?"));
             } break;
             case Element::Type::et_generate_grid_btn: {
                 auto guard = this->quad_program.withTexture(this->button);
@@ -457,6 +573,8 @@ struct Context {
         while ((ev = this->ev_sentinel.dequeue()) != nullptr) {
             switch (ev->val) {
             case Event::et_empty:
+            case Event::et_mouse_release:
+            case Event::et_right_mouse_release:
                 break;
             case Event::et_mouse_press: {
                 LLElement *el = &this->el_sentinel;
@@ -468,19 +586,35 @@ struct Context {
                         switch (el->val.type) {
                         case Element::Type::et_empty:
                         case Element::Type::et_background:
-                        case Element::Type::et_grid_cell:
+                        case Element::Type::et_revealed_grid_cell:
+                        case Element::Type::et_flagged_grid_cell:
+                        case Element::Type::et_maybe_flagged_grid_cell:
                         case Element::Type::et_text:
                             break;
+                        case Element::Type::et_empty_grid_cell: {
+                            keep_processing_elems = false;
+
+                            if (this->preview_grid) {
+                                printf("Generating grid\n");
+
+                                this->preview_grid = false;
+                                this->grid = generateGrid(
+                                    this->grid_arena,
+                                    Dims{this->width_input, this->height_input},
+                                    15, el->val.cell_loc);
+                            } else {
+                                uncoverSelfAndNeighbors(this->grid,
+                                                        el->val.cell_loc);
+                            }
+
+                            window.needs_render = true;
+                        } break;
                         case Element::Type::et_generate_grid_btn: {
                             keep_processing_elems = false;
 
-                            printf("Generating grid\n");
+                            printf("Previewing grid\n");
 
-                            this->grid = generateGrid(
-                                this->grid_arena,
-                                Dims{this->width_input, this->height_input}, 15,
-                                Location{0, 0});
-
+                            this->preview_grid = true;
                             window.needs_render = true;
                         } break;
                         case Element::Type::et_width_inc: {
@@ -518,9 +652,44 @@ struct Context {
                         }
                     }
                 }
-            }
-            case Event::et_mouse_release:
-                break;
+            } break;
+            case Event::et_right_mouse_press: {
+                LLElement *el = &this->el_sentinel;
+
+                bool keep_processing_elems = true;
+                while ((el = el->prev) != &this->el_sentinel &&
+                       keep_processing_elems) {
+                    if (el->val.contains(this->down_right_mouse_pos)) {
+                        switch (el->val.type) {
+                        case Element::Type::et_empty:
+                        case Element::Type::et_background:
+                        case Element::Type::et_revealed_grid_cell:
+                        case Element::Type::et_maybe_flagged_grid_cell:
+                        case Element::Type::et_text:
+                        case Element::Type::et_generate_grid_btn:
+                        case Element::Type::et_width_inc:
+                        case Element::Type::et_width_dec:
+                        case Element::Type::et_height_inc:
+                        case Element::Type::et_height_dec:
+                            break;
+                        case Element::Type::et_empty_grid_cell: {
+                            keep_processing_elems = false;
+
+                            flagCell(this->grid, el->val.cell_loc);
+
+                            window.needs_render = true;
+                        } break;
+                        case Element::Type::et_flagged_grid_cell: {
+                            keep_processing_elems = false;
+
+                            unflagCell(this->grid, el->val.cell_loc);
+
+                            window.needs_render = true;
+                        } break;
+                        }
+                    }
+                }
+            } break;
             }
         }
     }

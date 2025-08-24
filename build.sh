@@ -60,3 +60,15 @@ case "$(uname -s)" in
 esac
 
 g++ -g -Wall -Wpedantic -std=c++17 main.cc -o minesweeper $LIBS
+
+if [[ $# == 1 ]]; then
+    case "$1" in
+        "run")
+            ./minesweeper
+            ;;
+        *)
+            echo "WARNING: Unrecognized argument"
+    esac
+elif [[ $# > 1 ]]; then
+    echo "Unexpected number of arguments, ignoring them"
+fi

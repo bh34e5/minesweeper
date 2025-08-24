@@ -176,6 +176,8 @@ struct Context {
         Element(Type type, Location loc, Dims dims)
             : type(type), loc(loc), dims(dims), next(nullptr) {}
 
+        static auto initSentinel(Element &el) -> void { el.next = nullptr; }
+
         auto push(Element *el) -> void {
             el->next = this->next;
             this->next = el;
@@ -219,8 +221,8 @@ struct Context {
 
     bool mouse_down;
     Location down_mouse_pos;
-    Event sentinel;
-    Element elements;
+    Event ev_sentinel;
+    Element el_sentinel;
 
     Arena grid_arena;
     Grid grid;
@@ -228,16 +230,18 @@ struct Context {
     Context(ThisWindow &window, Arena &&arena, Arena &&grid_arena)
         : arena(std::move(arena)), mark(this->arena.len),
           quad_program(window.quadProgram()), button{}, background{},
-          mouse_down(false), down_mouse_pos{}, sentinel{Event::Type::et_empty},
-          elements{Element::Type::et_empty}, grid_arena(std::move(grid_arena)),
-          grid{} {
+          mouse_down(false), down_mouse_pos{},
+          ev_sentinel{Event::Type::et_empty},
+          el_sentinel{Element::Type::et_empty},
+          grid_arena(std::move(grid_arena)), grid{} {
         glFrontFace(GL_CCW);
         glClearColor(0.0, 0.0, 0.0, 0.0);
 
         this->button.grayscale(204, Dims{1, 1});
         this->background.grayscale(120, Dims{1, 1});
 
-        Event::initSentinel(this->sentinel);
+        Event::initSentinel(this->ev_sentinel);
+        Element::initSentinel(this->el_sentinel);
     }
 
     void framebufferSizeCallback(ThisWindow &window, int width, int height) {
@@ -257,20 +261,21 @@ struct Context {
 
                 this->mouse_down = true;
                 this->down_mouse_pos = window.getClampedMouseLocation();
-                this->sentinel.enqueue(ev);
+                this->ev_sentinel.enqueue(ev);
             } else {
                 Event *ev =
                     this->arena.pushT(Event{Event::Type::et_mouse_release});
 
                 this->mouse_down = false;
-                this->sentinel.enqueue(ev);
+                this->ev_sentinel.enqueue(ev);
             }
         }
     }
 
     auto render(ThisWindow &window) -> void {
         this->arena.reset(this->mark);
-        Event::initSentinel(this->sentinel);
+        Event::initSentinel(this->ev_sentinel);
+        Element::initSentinel(this->el_sentinel);
 
         Dims window_dims = window.getDims();
         size_t w = window_dims.width;
@@ -332,7 +337,7 @@ struct Context {
             Element *el = this->arena.pushT(Element{
                 Element::Type::et_generate_grid, button_loc, button_dims});
 
-            this->elements.push(el);
+            this->el_sentinel.push(el);
         }
     }
 
@@ -344,12 +349,12 @@ struct Context {
 
     auto processEvents(ThisWindow &window) -> void {
         Event *ev = nullptr;
-        while ((ev = this->sentinel.dequeue()) != nullptr) {
+        while ((ev = this->ev_sentinel.dequeue()) != nullptr) {
             switch (ev->type) {
             case Event::Type::et_empty:
                 break;
             case Event::Type::et_mouse_press: {
-                Element *el = &this->elements;
+                Element *el = &this->el_sentinel;
 
                 bool keep_processing_elems = true;
                 while ((el = el->next) != nullptr && keep_processing_elems) {

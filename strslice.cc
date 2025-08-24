@@ -5,6 +5,7 @@
 #include "slice.cc"
 #include "utils.cc"
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/types.h>
@@ -84,4 +85,24 @@ auto toZString(Arena &arena, StrSlice str) -> char * {
     snprintf(z_str, str.len + 1, "%.*s", STR_ARGS(str));
 
     return z_str;
+}
+
+auto vsliceNPrintf(char *buf, size_t n, char const *format, va_list args)
+    -> StrSlice {
+    size_t len = vsnprintf(buf, n, format, args);
+    if (len >= n) {
+        // response truncated
+        len = n - 1;
+    }
+    return StrSlice{buf, len};
+}
+
+auto sliceNPrintf(char *buf, size_t n, char const *format, ...) -> StrSlice {
+    va_list args;
+    va_start(args, format);
+
+    StrSlice result = vsliceNPrintf(buf, n, format, args);
+    va_end(args);
+
+    return result;
 }

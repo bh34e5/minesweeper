@@ -159,14 +159,10 @@ template <typename T> struct LinkedList {
 struct Context {
     typedef Window<Context> ThisWindow;
 
-    struct Event {
-        enum Type {
-            et_empty,
-            et_mouse_press,
-            et_mouse_release,
-        };
-
-        Type type;
+    enum Event {
+        et_empty,
+        et_mouse_press,
+        et_mouse_release,
     };
 
     struct Element {
@@ -174,6 +170,10 @@ struct Context {
             et_empty,
             et_background,
             et_grid_cell,
+            et_width_inc,
+            et_width_dec,
+            et_height_inc,
+            et_height_dec,
             et_generate_grid_btn,
             et_text,
         };
@@ -182,12 +182,13 @@ struct Context {
         Location loc;
         Dims dims;
         StrSlice text;
+        Color color;
 
-        Element(Type type) : type(type), loc{}, dims{}, text{} {}
+        Element(Type type) : type(type), loc{}, dims{}, text{}, color{} {}
         Element(Type type, Location loc, Dims dims)
-            : type(type), loc(loc), dims(dims), text{} {}
-        Element(Type type, Location loc, StrSlice text)
-            : type(type), loc(loc), dims{}, text(text) {}
+            : type(type), loc(loc), dims(dims), text{}, color{} {}
+        Element(Type type, Location loc, StrSlice text, Color color)
+            : type(type), loc(loc), dims{}, text(text), color(color) {}
 
         auto contains(Location loc) -> bool {
             if (loc.row < this->loc.row) {
@@ -222,6 +223,9 @@ struct Context {
     LLEvent ev_sentinel;
     LLElement el_sentinel;
 
+    size_t width_input;
+    size_t height_input;
+
     Arena grid_arena;
     Grid grid;
 
@@ -233,9 +237,9 @@ struct Context {
           baked_font{window.bakedFont(this->arena, "./fonts/Roboto-Black.ttf",
                                       font_pixel_height)},
           button{}, background{}, mouse_down(false), down_mouse_pos{},
-          ev_sentinel{Event::Type::et_empty},
-          el_sentinel{Element::Type::et_empty},
-          grid_arena(std::move(grid_arena)), grid{} {
+          ev_sentinel{Event::et_empty}, el_sentinel{Element::Type::et_empty},
+          width_input(10), height_input(10), grid_arena(std::move(grid_arena)),
+          grid{} {
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -244,7 +248,6 @@ struct Context {
 
         this->button.grayscale(204, Dims{1, 1});
         this->background.grayscale(120, Dims{1, 1});
-        this->baked_font.setColor(Color::grayscale(225));
 
         LLEvent::initSentinel(this->ev_sentinel);
         LLElement::initSentinel(this->el_sentinel);
@@ -262,15 +265,15 @@ struct Context {
     void mouseButtonCallback(ThisWindow &window, int button, int action, int) {
         if (button == GLFW_MOUSE_BUTTON_1) {
             if (action == GLFW_PRESS) {
-                LLEvent *ev = this->arena.pushT<LLEvent>(
-                    Event{Event::Type::et_mouse_press});
+                LLEvent *ev =
+                    this->arena.pushT<LLEvent>(Event{Event::et_mouse_press});
 
                 this->mouse_down = true;
                 this->down_mouse_pos = window.getClampedMouseLocation();
                 this->ev_sentinel.enqueue(ev);
             } else {
-                LLEvent *ev = this->arena.pushT<LLEvent>(
-                    Event{Event::Type::et_mouse_release});
+                LLEvent *ev =
+                    this->arena.pushT<LLEvent>(Event{Event::et_mouse_release});
 
                 this->mouse_down = false;
                 this->ev_sentinel.enqueue(ev);
@@ -325,19 +328,72 @@ struct Context {
                 }
             }
         } else {
-            Dims button_dims{100, 50};
-            Location button_loc{
-                (h - button_dims.height) / 2,
-                (w - button_dims.width) / 2,
-            };
-
-            this->pushElement(
-                {Element::Type::et_generate_grid_btn, button_loc, button_dims});
-
-            Location text_loc{render_loc.row + 10, render_loc.col + 10};
-            this->pushElement(
-                {Element::Type::et_text, text_loc, STR_SLICE("Hi I'm Text")});
+            this->buildGenerateScene(render_dims);
         }
+    }
+
+    auto buildGenerateScene(Dims render_dims) -> void {
+        size_t w = render_dims.width;
+        size_t h = render_dims.height;
+
+        Dims button_dims{
+            125, 20 + font_pixel_height}; // TODO(bhester): get text bounds
+
+        Location button_loc{
+            (h - button_dims.height) / 2,
+            (w - button_dims.width) / 2,
+        };
+
+        size_t width_len = 9 + 1;   // "Width: dd" + null
+        size_t height_len = 10 + 1; // "Height: dd" + null
+
+        char *width_label = this->arena.pushTN<char>(width_len);
+        char *height_label = this->arena.pushTN<char>(height_len);
+
+        StrSlice width_slice = sliceNPrintf(width_label, width_len,
+                                            "Width: %zu", this->width_input);
+        StrSlice height_slice = sliceNPrintf(height_label, height_len,
+                                             "Height: %zu", this->height_input);
+
+        Location width_loc{button_loc.row - 2 * (font_pixel_height + 10),
+                           button_loc.col + 10};
+        Location height_loc{button_loc.row - 1 * (font_pixel_height + 10),
+                            button_loc.col + 10};
+
+        // push DEC,INC,LABEL
+        this->pushElement(
+            {Element::Type::et_width_dec,
+             Location{width_loc.row,
+                      width_loc.col - 2 * (font_pixel_height + 5)},
+             Dims{font_pixel_height, font_pixel_height}});
+        this->pushElement(
+            {Element::Type::et_width_inc,
+             Location{width_loc.row,
+                      width_loc.col - 1 * (font_pixel_height + 5)},
+             Dims{font_pixel_height, font_pixel_height}});
+        this->pushElement({Element::Type::et_text, width_loc, width_slice,
+                           Color::grayscale(50)});
+
+        // push DEC,INC,LABEL
+        this->pushElement(
+            {Element::Type::et_height_dec,
+             Location{height_loc.row,
+                      height_loc.col - 2 * (font_pixel_height + 5)},
+             Dims{font_pixel_height, font_pixel_height}});
+        this->pushElement(
+            {Element::Type::et_height_inc,
+             Location{height_loc.row,
+                      height_loc.col - 1 * (font_pixel_height + 5)},
+             Dims{font_pixel_height, font_pixel_height}});
+        this->pushElement({Element::Type::et_text, height_loc, height_slice,
+                           Color::grayscale(50)});
+
+        this->pushElement(
+            {Element::Type::et_generate_grid_btn, button_loc, button_dims});
+
+        Location text_loc{button_loc.row + 5, button_loc.col + 10};
+        this->pushElement({Element::Type::et_text, text_loc,
+                           STR_SLICE("Generate"), Color::grayscale(50)});
     }
 
     auto renderScene(ThisWindow &window) -> void {
@@ -360,7 +416,28 @@ struct Context {
                 this->renderQuad(window, el->val.loc, el->val.dims);
             } break;
             case Element::Type::et_text: {
+                this->baked_font.setColor(el->val.color);
                 this->renderText(window, el->val.loc, el->val.text);
+            } break;
+            case Element::Type::et_width_inc:
+            case Element::Type::et_height_inc: {
+                {
+                    auto gaurd = this->quad_program.withTexture(this->button);
+                    this->renderQuad(window, el->val.loc, el->val.dims);
+                }
+
+                this->baked_font.setColor(Color::grayscale(0));
+                this->renderText(window, el->val.loc, STR_SLICE("+"));
+            } break;
+            case Element::Type::et_width_dec:
+            case Element::Type::et_height_dec: {
+                {
+                    auto gaurd = this->quad_program.withTexture(this->button);
+                    this->renderQuad(window, el->val.loc, el->val.dims);
+                }
+
+                this->baked_font.setColor(Color::grayscale(0));
+                this->renderText(window, el->val.loc, STR_SLICE("-"));
             } break;
             }
         }
@@ -378,10 +455,10 @@ struct Context {
     auto processEvents(ThisWindow &window) -> void {
         LLEvent *ev = nullptr;
         while ((ev = this->ev_sentinel.dequeue()) != nullptr) {
-            switch (ev->val.type) {
-            case Event::Type::et_empty:
+            switch (ev->val) {
+            case Event::et_empty:
                 break;
-            case Event::Type::et_mouse_press: {
+            case Event::et_mouse_press: {
                 LLElement *el = &this->el_sentinel;
 
                 bool keep_processing_elems = true;
@@ -399,17 +476,50 @@ struct Context {
 
                             printf("Generating grid\n");
 
-                            this->grid =
-                                generateGrid(this->grid_arena, Dims{10, 10}, 15,
-                                             Location{5, 5});
+                            this->grid = generateGrid(
+                                this->grid_arena,
+                                Dims{this->width_input, this->height_input}, 15,
+                                Location{0, 0});
 
                             window.needs_render = true;
+                        } break;
+                        case Element::Type::et_width_inc: {
+                            keep_processing_elems = false;
+
+                            if (this->width_input < 99) {
+                                ++this->width_input;
+                                window.needs_render = true;
+                            }
+                        } break;
+                        case Element::Type::et_width_dec: {
+                            keep_processing_elems = false;
+
+                            if (this->width_input > 1) {
+                                --this->width_input;
+                                window.needs_render = true;
+                            }
+                        } break;
+                        case Element::Type::et_height_inc: {
+                            keep_processing_elems = false;
+
+                            if (this->height_input < 99) {
+                                ++this->height_input;
+                                window.needs_render = true;
+                            }
+                        } break;
+                        case Element::Type::et_height_dec: {
+                            keep_processing_elems = false;
+
+                            if (this->height_input > 1) {
+                                --this->height_input;
+                                window.needs_render = true;
+                            }
                         } break;
                         }
                     }
                 }
             }
-            case Event::Type::et_mouse_release:
+            case Event::et_mouse_release:
                 break;
             }
         }

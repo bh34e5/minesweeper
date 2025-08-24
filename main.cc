@@ -12,6 +12,7 @@
 
 #include <stdlib.h>
 #include <sys/types.h>
+#include <utility>
 
 #define LEN(arr) (sizeof(arr) / sizeof(*arr))
 
@@ -116,6 +117,45 @@ void handle_error(int error, char const *description) {
     fprintf(stderr, "GLFW Error (%d)): %s\n", error, description);
 }
 
+template <typename T> struct LinkedList {
+    T val;
+    LinkedList *next;
+    LinkedList *prev;
+
+    LinkedList(T val) : val(val), next(nullptr), prev(nullptr) {}
+    template <typename... Args>
+    LinkedList(Args &&...args)
+        : val{std::forward<Args>(args)...}, next(nullptr), prev(nullptr) {}
+
+    static auto initSentinel(LinkedList &ll) -> void {
+        ll.next = &ll;
+        ll.prev = &ll;
+    }
+
+    auto enqueue(LinkedList *ll) -> void {
+        ll->prev = this->prev;
+        ll->next = this;
+
+        ll->prev->next = ll;
+        ll->next->prev = ll;
+    }
+
+    auto dequeue() -> LinkedList * {
+        if (this->next == this) {
+            return nullptr;
+        }
+
+        LinkedList *ll = this->next;
+        ll->prev->next = ll->next;
+        ll->next->prev = ll->prev;
+
+        ll->prev = nullptr;
+        ll->next = nullptr;
+
+        return ll;
+    }
+};
+
 struct Context {
     typedef Window<Context> ThisWindow;
 
@@ -127,73 +167,27 @@ struct Context {
         };
 
         Type type;
-        Event *next;
-        Event *prev;
-
-        Event(Type type) : type(type), next(nullptr), prev(nullptr) {}
-
-        static auto initSentinel(Event &ev) -> void {
-            ev.next = &ev;
-            ev.prev = &ev;
-        }
-
-        auto enqueue(Event *ev) -> void {
-            ev->prev = this->prev;
-            ev->next = this;
-
-            ev->prev->next = ev;
-            ev->next->prev = ev;
-        }
-
-        auto dequeue() -> Event * {
-            if (this->next == this) {
-                return nullptr;
-            }
-
-            Event *ev = this->next;
-            ev->prev->next = ev->next;
-            ev->next->prev = ev->prev;
-
-            ev->prev = nullptr;
-            ev->next = nullptr;
-
-            return ev;
-        }
     };
 
     struct Element {
         enum Type {
             et_empty,
-            et_generate_grid,
+            et_background,
+            et_grid_cell,
+            et_generate_grid_btn,
+            et_text,
         };
 
         Type type;
         Location loc;
         Dims dims;
-        Element *next;
+        StrSlice text;
 
-        Element(Type type) : type(type), loc{}, dims{}, next(nullptr) {}
+        Element(Type type) : type(type), loc{}, dims{}, text{} {}
         Element(Type type, Location loc, Dims dims)
-            : type(type), loc(loc), dims(dims), next(nullptr) {}
-
-        static auto initSentinel(Element &el) -> void { el.next = nullptr; }
-
-        auto push(Element *el) -> void {
-            el->next = this->next;
-            this->next = el;
-        }
-
-        auto pop() -> Element * {
-            if (this->next == nullptr) {
-                return nullptr;
-            }
-
-            Element *el = this->next;
-            this->next = el->next;
-            el->next = nullptr;
-
-            return el;
-        }
+            : type(type), loc(loc), dims(dims), text{} {}
+        Element(Type type, Location loc, StrSlice text)
+            : type(type), loc(loc), dims{}, text(text) {}
 
         auto contains(Location loc) -> bool {
             if (loc.row < this->loc.row) {
@@ -212,6 +206,9 @@ struct Context {
         }
     };
 
+    typedef LinkedList<Event> LLEvent;
+    typedef LinkedList<Element> LLElement;
+
     Arena arena;
     size_t mark;
 
@@ -222,8 +219,8 @@ struct Context {
 
     bool mouse_down;
     Location down_mouse_pos;
-    Event ev_sentinel;
-    Element el_sentinel;
+    LLEvent ev_sentinel;
+    LLElement el_sentinel;
 
     Arena grid_arena;
     Grid grid;
@@ -247,9 +244,10 @@ struct Context {
 
         this->button.grayscale(204, Dims{1, 1});
         this->background.grayscale(120, Dims{1, 1});
+        this->baked_font.setColor(Color::grayscale(225));
 
-        Event::initSentinel(this->ev_sentinel);
-        Element::initSentinel(this->el_sentinel);
+        LLEvent::initSentinel(this->ev_sentinel);
+        LLElement::initSentinel(this->el_sentinel);
     }
 
     void framebufferSizeCallback(ThisWindow &window, int width, int height) {
@@ -264,15 +262,15 @@ struct Context {
     void mouseButtonCallback(ThisWindow &window, int button, int action, int) {
         if (button == GLFW_MOUSE_BUTTON_1) {
             if (action == GLFW_PRESS) {
-                Event *ev =
-                    this->arena.pushT(Event{Event::Type::et_mouse_press});
+                LLEvent *ev = this->arena.pushT<LLEvent>(
+                    Event{Event::Type::et_mouse_press});
 
                 this->mouse_down = true;
                 this->down_mouse_pos = window.getClampedMouseLocation();
                 this->ev_sentinel.enqueue(ev);
             } else {
-                Event *ev =
-                    this->arena.pushT(Event{Event::Type::et_mouse_release});
+                LLEvent *ev = this->arena.pushT<LLEvent>(
+                    Event{Event::Type::et_mouse_release});
 
                 this->mouse_down = false;
                 this->ev_sentinel.enqueue(ev);
@@ -280,11 +278,7 @@ struct Context {
         }
     }
 
-    auto render(ThisWindow &window) -> void {
-        this->arena.reset(this->mark);
-        Event::initSentinel(this->ev_sentinel);
-        Element::initSentinel(this->el_sentinel);
-
+    auto buildScene(ThisWindow &window) -> void {
         Dims window_dims = window.getDims();
         size_t w = window_dims.width;
         size_t h = window_dims.height;
@@ -300,10 +294,8 @@ struct Context {
             (h - render_dims.height) / 2,
         };
 
-        {
-            auto guard = this->quad_program.withTexture(this->background);
-            this->renderQuad(window, render_loc, render_dims);
-        }
+        this->pushElement(
+            {Element::Type::et_background, render_loc, render_dims});
 
         if (this->grid.dims.area() > 0) {
             size_t cell_padding = 1;
@@ -328,8 +320,8 @@ struct Context {
                     Location cell_loc{render_loc.row + r_pos,
                                       render_loc.col + c_pos};
 
-                    this->renderCell(window, this->grid[r][c], cell_loc,
-                                     cell_dims);
+                    this->pushElement(
+                        {Element::Type::et_grid_cell, cell_loc, cell_dims});
                 }
             }
         } else {
@@ -339,43 +331,70 @@ struct Context {
                 (w - button_dims.width) / 2,
             };
 
-            auto guard = this->quad_program.withTexture(this->button);
-            this->renderQuad(window, button_loc, button_dims);
+            this->pushElement(
+                {Element::Type::et_generate_grid_btn, button_loc, button_dims});
 
-            Element *el = this->arena.pushT(Element{
-                Element::Type::et_generate_grid, button_loc, button_dims});
-
-            this->baked_font.setColor(Color::grayscale(225));
-            this->renderText(window,
-                             Location{render_loc.row + 10, render_loc.col + 10},
-                             STR_SLICE("Hi I'm Text"));
-
-            this->el_sentinel.push(el);
+            Location text_loc{render_loc.row + 10, render_loc.col + 10};
+            this->pushElement(
+                {Element::Type::et_text, text_loc, STR_SLICE("Hi I'm Text")});
         }
     }
 
-    auto renderCell(ThisWindow &window, Cell &cell, Location cell_loc,
-                    Dims cell_dims) -> void {
-        auto guard = this->quad_program.withTexture(this->button);
-        this->renderQuad(window, cell_loc, cell_dims);
+    auto renderScene(ThisWindow &window) -> void {
+        LLElement *el = &this->el_sentinel;
+
+        while ((el = el->next) != &this->el_sentinel) {
+            switch (el->val.type) {
+            case Element::Type::et_empty:
+                break;
+            case Element::Type::et_background: {
+                auto guard = this->quad_program.withTexture(this->background);
+                this->renderQuad(window, el->val.loc, el->val.dims);
+            } break;
+            case Element::Type::et_grid_cell: {
+                auto guard = this->quad_program.withTexture(this->button);
+                this->renderQuad(window, el->val.loc, el->val.dims);
+            } break;
+            case Element::Type::et_generate_grid_btn: {
+                auto guard = this->quad_program.withTexture(this->button);
+                this->renderQuad(window, el->val.loc, el->val.dims);
+            } break;
+            case Element::Type::et_text: {
+                this->renderText(window, el->val.loc, el->val.text);
+            } break;
+            }
+        }
+    }
+
+    auto render(ThisWindow &window) -> void {
+        this->arena.reset(this->mark);
+        LLEvent::initSentinel(this->ev_sentinel);
+        LLElement::initSentinel(this->el_sentinel);
+
+        buildScene(window);
+        renderScene(window);
     }
 
     auto processEvents(ThisWindow &window) -> void {
-        Event *ev = nullptr;
+        LLEvent *ev = nullptr;
         while ((ev = this->ev_sentinel.dequeue()) != nullptr) {
-            switch (ev->type) {
+            switch (ev->val.type) {
             case Event::Type::et_empty:
                 break;
             case Event::Type::et_mouse_press: {
-                Element *el = &this->el_sentinel;
+                LLElement *el = &this->el_sentinel;
 
                 bool keep_processing_elems = true;
-                while ((el = el->next) != nullptr && keep_processing_elems) {
-                    if (el->contains(this->down_mouse_pos)) {
-                        switch (el->type) {
+                while ((el = el->prev) != &this->el_sentinel &&
+                       keep_processing_elems) {
+                    if (el->val.contains(this->down_mouse_pos)) {
+                        switch (el->val.type) {
                         case Element::Type::et_empty:
+                        case Element::Type::et_background:
+                        case Element::Type::et_grid_cell:
+                        case Element::Type::et_text:
                             break;
-                        case Element::Type::et_generate_grid: {
+                        case Element::Type::et_generate_grid_btn: {
                             keep_processing_elems = false;
 
                             printf("Generating grid\n");
@@ -394,6 +413,11 @@ struct Context {
                 break;
             }
         }
+    }
+
+    auto pushElement(Element el) -> void {
+        LLElement *ll = this->arena.pushT<LLElement>(el);
+        this->el_sentinel.enqueue(ll);
     }
 
     auto renderQuad(ThisWindow &window, Location loc, Dims dims) -> void {

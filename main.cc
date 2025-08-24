@@ -345,11 +345,10 @@ struct Context {
             Element *el = this->arena.pushT(Element{
                 Element::Type::et_generate_grid, button_loc, button_dims});
 
-            this->baked_font.setColor(Color{255, 255, 255});
-            this->baked_font.renderTextBaseline(
-                Location{render_loc.row + 10 + font_pixel_height,
-                         render_loc.col + 10},
-                STR_SLICE("Hi I'm Text"), window.getDims());
+            this->baked_font.setColor(Color::grayscale(225));
+            this->renderText(window,
+                             Location{render_loc.row + 10, render_loc.col + 10},
+                             STR_SLICE("Hi I'm Text"));
 
             this->el_sentinel.push(el);
         }
@@ -399,6 +398,10 @@ struct Context {
 
     auto renderQuad(ThisWindow &window, Location loc, Dims dims) -> void {
         window.renderQuad(this->quad_program, loc, dims);
+    }
+
+    auto renderText(ThisWindow &window, Location loc, StrSlice text) -> void {
+        window.renderText(this->baked_font, loc, text);
     }
 };
 

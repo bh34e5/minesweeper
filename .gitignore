@@ -2,4 +2,5 @@ minesweeper
 minesweeper.dSYM/
 codegen
 codegen.dSYM/
+fonts/
 .ccls

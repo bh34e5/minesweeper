@@ -228,6 +228,8 @@ struct Color {
     unsigned char r;
     unsigned char g;
     unsigned char b;
+
+    static auto grayscale(unsigned char g) -> Color { return Color{g, g, g}; }
 };
 
 struct Texture2D {
@@ -283,7 +285,7 @@ struct Texture2D {
     }
 
     auto grayscale(unsigned char g, Dims dims) {
-        solidColor(Color{g, g, g}, dims);
+        solidColor(Color::grayscale(g), dims);
     }
 
     auto bindAlphaData(Dims dims, unsigned char *pixels) -> void {
@@ -466,15 +468,16 @@ inline auto glColor(unsigned char c) -> GLfloat {
 }
 
 struct BakedFont {
+    float pixel_height;
     Dims bmp_dims;
     stbtt_bakedchar chardata[96]; // printable characters
     QuadProgram quad_program;
     GLint font_color;
 
-    BakedFont(Dims bmp_dims, stbtt_bakedchar chardata[96],
+    BakedFont(float pixel_height, Dims bmp_dims, stbtt_bakedchar chardata[96],
               QuadProgram &&quad_progam, GLint font_color)
-        : bmp_dims{bmp_dims}, chardata{}, quad_program{std::move(quad_progam)},
-          font_color(font_color) {
+        : pixel_height(pixel_height), bmp_dims{bmp_dims}, chardata{},
+          quad_program{std::move(quad_progam)}, font_color(font_color) {
         memcpy(this->chardata, chardata, 96 * sizeof(*chardata));
     }
 
@@ -513,6 +516,11 @@ struct BakedFont {
             this->quad_program.renderAt(char_loc_ul, char_dims, q.s0, q.t0,
                                         q.s1, q.t1, window_dims);
         }
+    }
+
+    auto renderText(Location loc, StrSlice text, Dims window_dims) -> void {
+        size_t new_row = loc.row + this->pixel_height;
+        this->renderTextBaseline(Location{new_row, loc.col}, text, window_dims);
     }
 };
 
@@ -775,8 +783,8 @@ template <typename T> struct Window {
                                  Texture2D{}};
         quad_program.texture.bindAlphaData(bmp_dims, pixels);
 
-        return BakedFont{bmp_dims, chardata, std::move(quad_program),
-                         font_color};
+        return BakedFont{pixel_height, bmp_dims, chardata,
+                         std::move(quad_program), font_color};
     }
 
     auto bakedFont(Arena &arena, char const *font_file, float pixel_height)
@@ -791,5 +799,10 @@ template <typename T> struct Window {
     auto renderQuad(QuadProgram &p, Location loc, Dims dims) -> void {
         Dims window_dims = this->getDims();
         p.renderAt(loc, dims, window_dims);
+    }
+
+    auto renderText(BakedFont &p, Location loc, StrSlice text) -> void {
+        Dims window_dims = this->getDims();
+        p.renderText(loc, text, window_dims);
     }
 };

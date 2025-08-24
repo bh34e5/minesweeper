@@ -72,6 +72,7 @@ struct Grid {
     Dims dims;
     size_t mine_count;
 
+    explicit Grid() : cells{}, dims{}, mine_count(0) {}
     explicit Grid(Slice<Cell> cells, Dims dims, size_t mine_count)
         : cells(cells), dims(dims), mine_count(mine_count) {}
 

@@ -12,7 +12,7 @@
 #include <stdio.h>
 #include <string.h> // for memset
 #include <sys/types.h>
-#include <utility> // for std::move
+#include <utility>
 
 #if __APPLE__
 // this does not seem to exist on my mac
@@ -274,6 +274,13 @@ inline auto toGlLoc(size_t val, size_t range) -> GLfloat {
 }
 
 struct QuadProgram {
+    struct WithGuard {
+        QuadProgram &ref;
+        Texture2D &texture;
+
+        ~WithGuard() { this->ref.swapTexture(this->texture); }
+    };
+
     Program program;
     GLint n_pos;
     GLint n_tex_p;
@@ -354,30 +361,33 @@ struct QuadProgram {
         Location sw = Location{loc.row + dims.height, loc.col};
         Location se = Location{loc.row + dims.height, loc.col + dims.width};
 
-        GLfloat nw_r = toGlLoc(nw.row, window_dims.width);
-        GLfloat nw_c = -toGlLoc(nw.col, window_dims.height);
-        GLfloat ne_r = toGlLoc(ne.row, window_dims.width);
-        GLfloat ne_c = -toGlLoc(ne.col, window_dims.height);
-        GLfloat sw_r = toGlLoc(sw.row, window_dims.width);
-        GLfloat sw_c = -toGlLoc(sw.col, window_dims.height);
-        GLfloat se_r = toGlLoc(se.row, window_dims.width);
-        GLfloat se_c = -toGlLoc(se.col, window_dims.height);
+        GLfloat nw_r = toGlLoc(window_dims.height - nw.row, window_dims.height);
+        GLfloat nw_c = toGlLoc(nw.col, window_dims.width);
+        GLfloat ne_r = toGlLoc(window_dims.height - ne.row, window_dims.height);
+        GLfloat ne_c = toGlLoc(ne.col, window_dims.width);
+        GLfloat sw_r = toGlLoc(window_dims.height - sw.row, window_dims.height);
+        GLfloat sw_c = toGlLoc(sw.col, window_dims.width);
+        GLfloat se_r = toGlLoc(window_dims.height - se.row, window_dims.height);
+        GLfloat se_c = toGlLoc(se.col, window_dims.width);
 
         GLfloat data[] = {
-            nw_r, nw_c, 0.0f, 0.0f, //
-            sw_r, sw_c, 1.0f, 0.0f, //
-            ne_r, ne_c, 0.0f, 1.0f, //
-            se_r, se_c, 1.0f, 1.0f, //
+            nw_c, nw_r, 0.0f, 0.0f, //
+            sw_c, sw_r, 1.0f, 0.0f, //
+            ne_c, ne_r, 0.0f, 1.0f, //
+            se_c, se_r, 1.0f, 1.0f, //
         };
 
         glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
         glBufferData(GL_ARRAY_BUFFER, sizeof(data), data, GL_STATIC_DRAW);
     }
 
-    auto swapTexture(Texture2D &&other) -> Texture2D {
-        Texture2D tmp{std::move(this->texture)};
-        this->texture = std::move(other);
-        return tmp;
+    auto swapTexture(Texture2D &other) -> void {
+        std::swap(this->texture, other);
+    }
+
+    auto withTexture(Texture2D &texture) -> WithGuard {
+        this->swapTexture(texture);
+        return WithGuard{*this, texture};
     }
 };
 
@@ -429,6 +439,16 @@ template <typename T> struct HasRender {
     static constexpr bool value = decltype(test<T>(std::declval<int>()))::value;
 };
 
+template <typename T> struct HasProcessEvents {
+    template <typename U, typename = decltype(std::declval<U>().processEvents(
+                              std::declval<Window<U> &>()))>
+    static std::true_type test(int);
+
+    template <typename> static std::false_type test(...);
+
+    static constexpr bool value = decltype(test<T>(std::declval<int>()))::value;
+};
+
 auto getInitWindow(int width, int height, char const *title) -> GLFWwindow * {
     GLFWwindow *w = glfwCreateWindow(width, height, title, nullptr, nullptr);
     glfwMakeContextCurrent(w);
@@ -449,13 +469,13 @@ template <typename T> struct Window {
     bool needs_render;
 
     template <typename... Args>
-    Window(int width, int height, char const *title, Args... args)
+    Window(int width, int height, char const *title, Args &&...args)
         : window(getInitWindow(width, height, title)),
           QuadFragShader{Shader::fromSource(GL_VERTEX_SHADER,
                                             STR_SLICE(QuadVertShaderText))},
           QuadVertShader{Shader::fromSource(GL_FRAGMENT_SHADER,
                                             STR_SLICE(QuadFragShaderText))},
-          ctx(*this, args...), needs_render(true) {
+          ctx(*this, std::forward<Args>(args)...), needs_render(true) {
         glfwSetFramebufferSizeCallback(this->window, &windowFramebufferSize);
         glfwSetCursorPosCallback(this->window, &windowCursorPos);
         glfwSetMouseButtonCallback(this->window, &windowMouseButton);
@@ -484,7 +504,7 @@ template <typename T> struct Window {
             }
 
             Window *wrapped = static_cast<Window *>(user_ptr);
-            wrapped->ctx->cursorPosCallback(*wrapped, xpos, ypos);
+            wrapped->ctx.cursorPosCallback(*wrapped, xpos, ypos);
         }
     }
 
@@ -497,7 +517,7 @@ template <typename T> struct Window {
             }
 
             Window *wrapped = static_cast<Window *>(user_ptr);
-            wrapped->ctx->mouseButtonCallback(*wrapped, button, action, mods);
+            wrapped->ctx.mouseButtonCallback(*wrapped, button, action, mods);
         }
     }
 
@@ -526,6 +546,14 @@ template <typename T> struct Window {
         glfwSwapBuffers(this->window);
     }
 
+    auto processEvents() -> void {
+        glfwPollEvents();
+
+        if constexpr (HasProcessEvents<T>::value) {
+            this->ctx.processEvents(*this);
+        }
+    }
+
     auto getKey(int key) -> int { return glfwGetKey(this->window, key); }
 
     auto isKeyPressed(int key) -> bool {
@@ -544,6 +572,21 @@ template <typename T> struct Window {
         assert(height >= 0 && "Invalid height");
 
         return Dims{static_cast<size_t>(width), static_cast<size_t>(height)};
+    }
+
+    auto getClampedMouseLocation() -> Location {
+        double xpos, ypos;
+        glfwGetCursorPos(this->window, &xpos, &ypos);
+
+        Dims window_dims = this->getDims();
+        double dw = window_dims.width;
+        double dh = window_dims.height;
+
+        double clamped_row = clamp(0.0, ypos, dh);
+        double clamped_col = clamp(0.0, xpos, dw);
+
+        return Location{static_cast<size_t>(clamped_row),
+                        static_cast<size_t>(clamped_col)};
     }
 
     auto quadProgramOp() -> Op<QuadProgram> {

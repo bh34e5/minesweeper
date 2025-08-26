@@ -1,6 +1,11 @@
 #include "arena.cc"
 #include "dirutils.cc"
-#include "graphics.cc"
+#include "graphics/bakedfont.cc"
+#include "graphics/common.cc"
+#include "graphics/gl.cc"
+#include "graphics/quadprogram.cc"
+#include "graphics/texture2d.cc"
+#include "graphics/window.cc"
 #include "grid.cc"
 #include "one_of_aware.cc"
 #include "op.cc"
@@ -123,6 +128,7 @@ template <typename T> struct LinkedList {
     LinkedList *prev;
 
     LinkedList(T val) : val(val), next(nullptr), prev(nullptr) {}
+
     template <typename... Args>
     LinkedList(Args &&...args)
         : val{std::forward<Args>(args)...}, next(nullptr), prev(nullptr) {}

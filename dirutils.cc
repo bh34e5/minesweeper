@@ -100,6 +100,15 @@ auto dirWestward(Dir dir) -> bool {
     assert(0 && "Unreachable");
 }
 
+struct SLocation {
+    ssize_t row;
+    ssize_t col;
+
+    auto eql(SLocation const &other) -> bool const {
+        return this->row == other.row && this->col == other.col;
+    }
+};
+
 struct Location {
     size_t row;
     size_t col;
@@ -115,11 +124,66 @@ struct Dims {
 
     inline auto area() -> size_t { return this->width * this->height; }
 
-    static auto fromRect(Location ul, Location br) -> Dims {
+    static auto fromCorners(Location ul, Location br) -> Dims {
         assert(ul.row <= br.row && "Invalid rect");
         assert(ul.col <= br.col && "Invalid rect");
 
         return Dims{br.col - ul.col, br.row - ul.row};
+    }
+
+    static auto fromCorners(SLocation ul, SLocation br) -> Dims {
+        assert(ul.row <= br.row && "Invalid rect");
+        assert(ul.col <= br.col && "Invalid rect");
+
+        return Dims{static_cast<size_t>(br.col - ul.col),
+                    static_cast<size_t>(br.row - ul.row)};
+    }
+};
+
+struct SRect {
+    SLocation ul;
+    Dims dims;
+
+    static auto fromCorners(SLocation ul, SLocation br) -> SRect {
+        return SRect{ul, Dims::fromCorners(ul, br)};
+    }
+
+    auto ur() -> SLocation {
+        ssize_t right_col = this->ul.col + this->dims.width;
+        return SLocation{this->ul.row, right_col};
+    }
+
+    auto bl() -> SLocation {
+        ssize_t bottom_row = this->ul.row + this->dims.height;
+        return SLocation{bottom_row, this->ul.col};
+    }
+
+    auto br() -> SLocation {
+        ssize_t right_col = this->ul.col + this->dims.width;
+        ssize_t bottom_row = this->ul.row + this->dims.height;
+        return SLocation{bottom_row, right_col};
+    }
+};
+
+struct Rect {
+    Location ul;
+    Dims dims;
+
+    static auto fromCorners(Location ul, Location br) -> Rect {
+        return Rect{ul, Dims::fromCorners(ul, br)};
+    }
+
+    auto ur() -> Location {
+        return Location{this->ul.row, this->ul.col + this->dims.width};
+    }
+
+    auto bl() -> Location {
+        return Location{this->ul.row + this->dims.height, this->ul.col};
+    }
+
+    auto br() -> Location {
+        return Location{this->ul.row + this->dims.height,
+                        this->ul.col + this->dims.width};
     }
 };
 

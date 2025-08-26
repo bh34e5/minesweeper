@@ -37,7 +37,7 @@ struct BakedFont {
         glUniform3fv(this->font_color, 1, color_vec);
     }
 
-    auto renderTextBaseline(Location loc, StrSlice text, Dims window_dims)
+    auto renderTextBaseline(SLocation loc, StrSlice text, Dims window_dims)
         -> void {
         float xpos = loc.col;
         float ypos = loc.row;
@@ -50,20 +50,21 @@ struct BakedFont {
                                this->bmp_dims.height, render_c - 32, &xpos,
                                &ypos, &q, 1);
 
-            Location char_loc_ul{static_cast<size_t>(q.y0),
-                                 static_cast<size_t>(q.x0)};
-            Location char_loc_br{static_cast<size_t>(q.y1),
-                                 static_cast<size_t>(q.x1)};
+            SLocation char_loc_ul{static_cast<ssize_t>(q.y0),
+                                  static_cast<ssize_t>(q.x0)};
+            SLocation char_loc_br{static_cast<ssize_t>(q.y1),
+                                  static_cast<ssize_t>(q.x1)};
 
-            Dims char_dims = Dims::fromRect(char_loc_ul, char_loc_br);
+            SRect char_rect = SRect::fromCorners(char_loc_ul, char_loc_br);
 
-            this->quad_program.renderAt(char_loc_ul, char_dims, q.s0, q.t0,
-                                        q.s1, q.t1, window_dims);
+            this->quad_program.renderAt(char_rect, q.s0, q.t0, q.s1, q.t1,
+                                        window_dims);
         }
     }
 
-    auto renderText(Location loc, StrSlice text, Dims window_dims) -> void {
-        size_t new_row = loc.row + this->pixel_height;
-        this->renderTextBaseline(Location{new_row, loc.col}, text, window_dims);
+    auto renderText(SLocation loc, StrSlice text, Dims window_dims) -> void {
+        ssize_t baseline_row = loc.row + this->pixel_height;
+        SLocation baseline_loc{baseline_row, loc.col};
+        this->renderTextBaseline(baseline_loc, text, window_dims);
     }
 };

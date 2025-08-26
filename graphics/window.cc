@@ -258,7 +258,7 @@ template <typename T> struct Window {
         return Dims{static_cast<size_t>(width), static_cast<size_t>(height)};
     }
 
-    auto getClampedMouseLocation() -> Location {
+    auto getClampedMouseLocation() -> SLocation {
         double xpos, ypos;
         glfwGetCursorPos(this->window, &xpos, &ypos);
 
@@ -269,8 +269,8 @@ template <typename T> struct Window {
         double clamped_row = clamp(0.0, ypos, dh);
         double clamped_col = clamp(0.0, xpos, dw);
 
-        return Location{static_cast<size_t>(clamped_row),
-                        static_cast<size_t>(clamped_col)};
+        return SLocation{static_cast<ssize_t>(clamped_row),
+                         static_cast<ssize_t>(clamped_col)};
     }
 
     auto quadProgramOp() -> Op<QuadProgram> {
@@ -344,12 +344,12 @@ template <typename T> struct Window {
         return result;
     }
 
-    auto renderQuad(QuadProgram &p, Location loc, Dims dims) -> void {
+    auto renderQuad(QuadProgram &p, SRect rect) -> void {
         Dims window_dims = this->getDims();
-        p.renderAt(loc, dims, window_dims);
+        p.renderAt(rect, window_dims);
     }
 
-    auto renderText(BakedFont &p, Location loc, StrSlice text) -> void {
+    auto renderText(BakedFont &p, SLocation loc, StrSlice text) -> void {
         Dims window_dims = this->getDims();
         p.renderText(loc, text, window_dims);
     }

@@ -190,7 +190,7 @@ struct Context {
         };
 
         Type type;
-        Location loc;
+        SLocation loc;
         Dims dims;
         StrSlice text;
         Color color;
@@ -198,26 +198,30 @@ struct Context {
 
         Element(Type type)
             : type(type), loc{}, dims{}, text{}, color{}, cell_loc{} {}
-        Element(Type type, Location loc, Dims dims)
+        Element(Type type, SLocation loc, Dims dims)
             : type(type), loc(loc), dims(dims), text{}, color{}, cell_loc{} {}
-        Element(Type type, Location loc, StrSlice text, Color color)
+        Element(Type type, SLocation loc, StrSlice text, Color color)
             : type(type), loc(loc), dims{}, text(text), color(color),
               cell_loc{} {}
-        Element(Type type, Location loc, Dims dims, Location cell_loc)
+        Element(Type type, SLocation loc, Dims dims, Location cell_loc)
             : type(type), loc(loc), dims(dims), text{}, color{},
               cell_loc(cell_loc) {}
 
-        auto contains(Location loc) -> bool {
+        auto contains(SLocation loc) -> bool {
             if (loc.row < this->loc.row) {
                 return false;
             }
             if (loc.col < this->loc.col) {
                 return false;
             }
-            if (loc.row > this->loc.row + this->dims.height) {
+
+            ssize_t bottom_row = this->loc.row + this->dims.height;
+            ssize_t right_col = this->loc.col + this->dims.width;
+
+            if (loc.row > bottom_row) {
                 return false;
             }
-            if (loc.col > this->loc.col + this->dims.width) {
+            if (loc.col > right_col) {
                 return false;
             }
             return true;
@@ -236,9 +240,9 @@ struct Context {
     Texture2D background;
 
     bool mouse_down;
-    Location down_mouse_pos;
+    SLocation down_mouse_pos;
     bool right_mouse_down;
-    Location down_right_mouse_pos;
+    SLocation down_right_mouse_pos;
 
     LLEvent ev_sentinel;
     LLElement el_sentinel;
@@ -324,15 +328,12 @@ struct Context {
         size_t h = window_dims.height;
 
         size_t padding = 15;
-        Dims render_dims{
-            (w > (2 * padding)) ? (w - 2 * padding) : 0,
-            (h > (2 * padding)) ? (h - 2 * padding) : 0,
-        };
+        Dims render_dims{(w > (2 * padding)) ? (w - 2 * padding) : 0,
+                         (h > (2 * padding)) ? (h - 2 * padding) : 0};
 
-        Location render_loc{
-            (w - render_dims.width) / 2,
-            (h - render_dims.height) / 2,
-        };
+        SLocation render_loc{
+            static_cast<ssize_t>((w - render_dims.width) / 2),
+            static_cast<ssize_t>((h - render_dims.height) / 2)};
 
         this->pushElement(
             {Element::Type::et_background, render_loc, render_dims});
@@ -350,15 +351,15 @@ struct Context {
             Dims cell_dims{cell_width, cell_height};
 
             for (size_t r = 0; r < this->grid.dims.height; ++r) {
-                size_t r_pos =
+                ssize_t r_pos =
                     r * (cell_height + 2 * cell_padding) + cell_padding;
 
                 for (size_t c = 0; c < this->grid.dims.width; ++c) {
-                    size_t c_pos =
+                    ssize_t c_pos =
                         c * (cell_width + 2 * cell_padding) + cell_padding;
 
-                    Location cell_loc{render_loc.row + r_pos,
-                                      render_loc.col + c_pos};
+                    SLocation cell_loc{render_loc.row + r_pos,
+                                       render_loc.col + c_pos};
 
                     Cell &cell = this->grid[r][c];
 
@@ -395,15 +396,15 @@ struct Context {
             Dims cell_dims{cell_width, cell_height};
 
             for (size_t r = 0; r < this->height_input; ++r) {
-                size_t r_pos =
+                ssize_t r_pos =
                     r * (cell_height + 2 * cell_padding) + cell_padding;
 
                 for (size_t c = 0; c < this->width_input; ++c) {
-                    size_t c_pos =
+                    ssize_t c_pos =
                         c * (cell_width + 2 * cell_padding) + cell_padding;
 
-                    Location cell_loc{render_loc.row + r_pos,
-                                      render_loc.col + c_pos};
+                    SLocation cell_loc{render_loc.row + r_pos,
+                                       render_loc.col + c_pos};
 
                     this->pushElement({Element::Type::et_empty_grid_cell,
                                        cell_loc, cell_dims, Location{r, c}});
@@ -421,10 +422,8 @@ struct Context {
         Dims button_dims{
             125, 20 + font_pixel_height}; // TODO(bhester): get text bounds
 
-        Location button_loc{
-            (h - button_dims.height) / 2,
-            (w - button_dims.width) / 2,
-        };
+        SLocation button_loc{static_cast<ssize_t>((h - button_dims.height) / 2),
+                             static_cast<ssize_t>((w - button_dims.width) / 2)};
 
         size_t width_len = 9 + 1;   // "Width: dd" + null
         size_t height_len = 10 + 1; // "Height: dd" + null
@@ -437,21 +436,22 @@ struct Context {
         StrSlice height_slice = sliceNPrintf(height_label, height_len,
                                              "Height: %zu", this->height_input);
 
-        Location width_loc{button_loc.row - 2 * (font_pixel_height + 10),
-                           button_loc.col + 10};
-        Location height_loc{button_loc.row - 1 * (font_pixel_height + 10),
+        ssize_t signed_pixel_height = font_pixel_height;
+        SLocation width_loc{button_loc.row - 2 * (signed_pixel_height + 10),
                             button_loc.col + 10};
+        SLocation height_loc{button_loc.row - 1 * (signed_pixel_height + 10),
+                             button_loc.col + 10};
 
         // push DEC,INC,LABEL
         this->pushElement(
             {Element::Type::et_width_dec,
-             Location{width_loc.row,
-                      width_loc.col - 2 * (font_pixel_height + 5)},
+             SLocation{width_loc.row,
+                       width_loc.col - 2 * (signed_pixel_height + 5)},
              Dims{font_pixel_height, font_pixel_height}});
         this->pushElement(
             {Element::Type::et_width_inc,
-             Location{width_loc.row,
-                      width_loc.col - 1 * (font_pixel_height + 5)},
+             SLocation{width_loc.row,
+                       width_loc.col - 1 * (signed_pixel_height + 5)},
              Dims{font_pixel_height, font_pixel_height}});
         this->pushElement({Element::Type::et_text, width_loc, width_slice,
                            Color::grayscale(50)});
@@ -459,13 +459,13 @@ struct Context {
         // push DEC,INC,LABEL
         this->pushElement(
             {Element::Type::et_height_dec,
-             Location{height_loc.row,
-                      height_loc.col - 2 * (font_pixel_height + 5)},
+             SLocation{height_loc.row,
+                       height_loc.col - 2 * (signed_pixel_height + 5)},
              Dims{font_pixel_height, font_pixel_height}});
         this->pushElement(
             {Element::Type::et_height_inc,
-             Location{height_loc.row,
-                      height_loc.col - 1 * (font_pixel_height + 5)},
+             SLocation{height_loc.row,
+                       height_loc.col - 1 * (signed_pixel_height + 5)},
              Dims{font_pixel_height, font_pixel_height}});
         this->pushElement({Element::Type::et_text, height_loc, height_slice,
                            Color::grayscale(50)});
@@ -473,7 +473,7 @@ struct Context {
         this->pushElement(
             {Element::Type::et_generate_grid_btn, button_loc, button_dims});
 
-        Location text_loc{button_loc.row + 5, button_loc.col + 10};
+        SLocation text_loc{button_loc.row + 5, button_loc.col + 10};
         this->pushElement({Element::Type::et_text, text_loc,
                            STR_SLICE("Generate"), Color::grayscale(50)});
     }
@@ -487,17 +487,17 @@ struct Context {
                 break;
             case Element::Type::et_background: {
                 auto guard = this->quad_program.withTexture(this->background);
-                this->renderQuad(window, el->val.loc, el->val.dims);
+                this->renderQuad(window, SRect{el->val.loc, el->val.dims});
             } break;
             case Element::Type::et_empty_grid_cell: {
                 auto guard = this->quad_program.withTexture(this->button);
-                this->renderQuad(window, el->val.loc, el->val.dims);
+                this->renderQuad(window, SRect{el->val.loc, el->val.dims});
             } break;
             case Element::Type::et_revealed_grid_cell: {
                 {
                     auto guard =
                         this->quad_program.withTexture(this->background);
-                    this->renderQuad(window, el->val.loc, el->val.dims);
+                    this->renderQuad(window, SRect{el->val.loc, el->val.dims});
                 }
 
                 // TODO(bhester): change font color based on the number?
@@ -518,7 +518,7 @@ struct Context {
             case Element::Type::et_flagged_grid_cell: {
                 {
                     auto guard = this->quad_program.withTexture(this->button);
-                    this->renderQuad(window, el->val.loc, el->val.dims);
+                    this->renderQuad(window, SRect{el->val.loc, el->val.dims});
                 }
 
                 this->baked_font.setColor(Color::grayscale(0));
@@ -527,7 +527,7 @@ struct Context {
             case Element::Type::et_maybe_flagged_grid_cell: {
                 {
                     auto guard = this->quad_program.withTexture(this->button);
-                    this->renderQuad(window, el->val.loc, el->val.dims);
+                    this->renderQuad(window, SRect{el->val.loc, el->val.dims});
                 }
 
                 this->baked_font.setColor(Color::grayscale(0));
@@ -535,7 +535,7 @@ struct Context {
             } break;
             case Element::Type::et_generate_grid_btn: {
                 auto guard = this->quad_program.withTexture(this->button);
-                this->renderQuad(window, el->val.loc, el->val.dims);
+                this->renderQuad(window, SRect{el->val.loc, el->val.dims});
             } break;
             case Element::Type::et_text: {
                 this->baked_font.setColor(el->val.color);
@@ -545,7 +545,7 @@ struct Context {
             case Element::Type::et_height_inc: {
                 {
                     auto gaurd = this->quad_program.withTexture(this->button);
-                    this->renderQuad(window, el->val.loc, el->val.dims);
+                    this->renderQuad(window, SRect{el->val.loc, el->val.dims});
                 }
 
                 this->baked_font.setColor(Color::grayscale(0));
@@ -555,7 +555,7 @@ struct Context {
             case Element::Type::et_height_dec: {
                 {
                     auto gaurd = this->quad_program.withTexture(this->button);
-                    this->renderQuad(window, el->val.loc, el->val.dims);
+                    this->renderQuad(window, SRect{el->val.loc, el->val.dims});
                 }
 
                 this->baked_font.setColor(Color::grayscale(0));
@@ -705,11 +705,11 @@ struct Context {
         this->el_sentinel.enqueue(ll);
     }
 
-    auto renderQuad(ThisWindow &window, Location loc, Dims dims) -> void {
-        window.renderQuad(this->quad_program, loc, dims);
+    auto renderQuad(ThisWindow &window, SRect rect) -> void {
+        window.renderQuad(this->quad_program, rect);
     }
 
-    auto renderText(ThisWindow &window, Location loc, StrSlice text) -> void {
+    auto renderText(ThisWindow &window, SLocation loc, StrSlice text) -> void {
         window.renderText(this->baked_font, loc, text);
     }
 };

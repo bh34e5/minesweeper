@@ -78,12 +78,12 @@ struct QuadProgram {
         return *this;
     }
 
-    auto renderAt(Location rect_loc, Dims rect_dims, float tex_loc_x0,
-                  float tex_loc_y0, float tex_loc_x1, float tex_loc_y1,
-                  Dims window_dims) -> void {
+    auto renderAt(SRect rect, float tex_loc_x0, float tex_loc_y0,
+                  float tex_loc_x1, float tex_loc_y1, Dims window_dims)
+        -> void {
         this->program.useProgram();
-        this->setPosition(rect_loc, rect_dims, tex_loc_x0, tex_loc_y0,
-                          tex_loc_x1, tex_loc_y1, window_dims);
+        this->setPosition(rect, tex_loc_x0, tex_loc_y0, tex_loc_x1, tex_loc_y1,
+                          window_dims);
 
         glActiveTexture(GL_TEXTURE0);
         glUniform1i(this->tex, 0); // GL_TEXTURE0
@@ -92,32 +92,31 @@ struct QuadProgram {
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     }
 
-    auto renderAt(Location loc, Dims dims, Dims window_dims) -> void {
-        this->renderAt(loc, dims, 0.0f, 0.0f, 1.0f, 1.0f, window_dims);
+    auto renderAt(SRect rect, Dims window_dims) -> void {
+        this->renderAt(rect, 0.0f, 0.0f, 1.0f, 1.0f, window_dims);
     }
 
-    auto setPosition(Location rect_loc, Dims rect_dims, float tex_loc_x0,
-                     float tex_loc_y0, float tex_loc_x1, float tex_loc_y1,
-                     Dims window_dims) -> void {
+    auto setPosition(SRect rect, float tex_loc_x0, float tex_loc_y0,
+                     float tex_loc_x1, float tex_loc_y1, Dims window_dims)
+        -> void {
         glBindVertexArray(this->vao);
 
-        Location rnw = rect_loc;
-        Location rne = Location{rect_loc.row, rect_loc.col + rect_dims.width};
-        Location rsw = Location{rect_loc.row + rect_dims.height, rect_loc.col};
-        Location rse = Location{rect_loc.row + rect_dims.height,
-                                rect_loc.col + rect_dims.width};
+        SLocation rect_ul = rect.ul;
+        SLocation rect_ur = rect.ur();
+        SLocation rect_bl = rect.bl();
+        SLocation rect_br = rect.br();
 
         size_t ww = window_dims.width;
         size_t wh = window_dims.height;
 
-        GLfloat nw_r = toGlLoc(wh - rnw.row, wh);
-        GLfloat nw_c = toGlLoc(rnw.col, ww);
-        GLfloat ne_r = toGlLoc(wh - rne.row, wh);
-        GLfloat ne_c = toGlLoc(rne.col, ww);
-        GLfloat sw_r = toGlLoc(wh - rsw.row, wh);
-        GLfloat sw_c = toGlLoc(rsw.col, ww);
-        GLfloat se_r = toGlLoc(wh - rse.row, wh);
-        GLfloat se_c = toGlLoc(rse.col, ww);
+        GLfloat nw_r = toGlLoc(wh - rect_ul.row, wh);
+        GLfloat nw_c = toGlLoc(rect_ul.col, ww);
+        GLfloat ne_r = toGlLoc(wh - rect_ur.row, wh);
+        GLfloat ne_c = toGlLoc(rect_ur.col, ww);
+        GLfloat sw_r = toGlLoc(wh - rect_bl.row, wh);
+        GLfloat sw_c = toGlLoc(rect_bl.col, ww);
+        GLfloat se_r = toGlLoc(wh - rect_br.row, wh);
+        GLfloat se_c = toGlLoc(rect_br.col, ww);
 
         GLfloat data[] = {
             nw_c, nw_r, tex_loc_x0, tex_loc_y0, //
@@ -130,32 +129,8 @@ struct QuadProgram {
         glBufferData(GL_ARRAY_BUFFER, sizeof(data), data, GL_STATIC_DRAW);
     }
 
-    auto setPosition(Location loc, Dims dims, Dims window_dims) -> void {
-        glBindVertexArray(this->vao);
-
-        Location nw = loc;
-        Location ne = Location{loc.row, loc.col + dims.width};
-        Location sw = Location{loc.row + dims.height, loc.col};
-        Location se = Location{loc.row + dims.height, loc.col + dims.width};
-
-        GLfloat nw_r = toGlLoc(window_dims.height - nw.row, window_dims.height);
-        GLfloat nw_c = toGlLoc(nw.col, window_dims.width);
-        GLfloat ne_r = toGlLoc(window_dims.height - ne.row, window_dims.height);
-        GLfloat ne_c = toGlLoc(ne.col, window_dims.width);
-        GLfloat sw_r = toGlLoc(window_dims.height - sw.row, window_dims.height);
-        GLfloat sw_c = toGlLoc(sw.col, window_dims.width);
-        GLfloat se_r = toGlLoc(window_dims.height - se.row, window_dims.height);
-        GLfloat se_c = toGlLoc(se.col, window_dims.width);
-
-        GLfloat data[] = {
-            nw_c, nw_r, 0.0f, 0.0f, //
-            sw_c, sw_r, 1.0f, 0.0f, //
-            ne_c, ne_r, 0.0f, 1.0f, //
-            se_c, se_r, 1.0f, 1.0f, //
-        };
-
-        glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(data), data, GL_STATIC_DRAW);
+    auto setPosition(SRect rect, Dims window_dims) -> void {
+        this->setPosition(rect, 0.0f, 0.0f, 1.0f, 1.0f, window_dims);
     }
 
     auto swapTexture(Texture2D &other) -> void {

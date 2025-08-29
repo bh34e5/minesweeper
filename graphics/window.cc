@@ -353,4 +353,14 @@ template <typename T> struct Window {
         Dims window_dims = this->getDims();
         p.renderText(loc, text, window_dims);
     }
+
+    auto renderText(BakedFont &p, SRect rect, StrSlice text) -> void {
+        Dims window_dims = this->getDims();
+        p.renderText(rect, text, window_dims);
+    }
+
+    auto renderCenteredText(BakedFont &p, SRect rect, StrSlice text) -> void {
+        Dims window_dims = this->getDims();
+        p.renderCenteredText(rect, text, window_dims);
+    }
 };

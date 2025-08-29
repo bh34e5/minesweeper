@@ -17,6 +17,7 @@
 
 #include <stdlib.h>
 #include <sys/types.h>
+#include <unistd.h>
 #include <utility>
 
 #define LEN(arr) (sizeof(arr) / sizeof(*arr))
@@ -256,8 +257,8 @@ struct Context {
 
     static size_t const font_pixel_height = 30;
 
-    Context(ThisWindow &window, Arena &&arena, Arena &&grid_arena)
-        : arena(std::move(arena)), mark(this->arena.len),
+    Context(ThisWindow &window)
+        : arena{MEGABYTES(4)}, mark(this->arena.len),
           quad_program(window.quadProgram()),
           baked_font{window.bakedFont(this->arena, "./fonts/Roboto-Black.ttf",
                                       font_pixel_height)},
@@ -265,7 +266,7 @@ struct Context {
           right_mouse_down(false), down_right_mouse_pos{},
           ev_sentinel{Event::et_empty}, el_sentinel{Element::Type::et_empty},
           preview_grid(false), width_input(10), height_input(10),
-          grid_arena(std::move(grid_arena)), grid{} {
+          grid_arena{KILOBYTES(4)}, grid{} {
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -472,10 +473,6 @@ struct Context {
 
         this->pushElement(
             {Element::Type::et_generate_grid_btn, button_loc, button_dims});
-
-        SLocation text_loc{button_loc.row + 5, button_loc.col + 10};
-        this->pushElement({Element::Type::et_text, text_loc,
-                           STR_SLICE("Generate"), Color::grayscale(50)});
     }
 
     auto renderScene(ThisWindow &window) -> void {
@@ -494,10 +491,11 @@ struct Context {
                 this->renderQuad(window, SRect{el->val.loc, el->val.dims});
             } break;
             case Element::Type::et_revealed_grid_cell: {
+                SRect render_rect{el->val.loc, el->val.dims};
                 {
                     auto guard =
                         this->quad_program.withTexture(this->background);
-                    this->renderQuad(window, SRect{el->val.loc, el->val.dims});
+                    this->renderQuad(window, render_rect);
                 }
 
                 // TODO(bhester): change font color based on the number?
@@ -510,32 +508,36 @@ struct Context {
                     break;
                 default: {
                     StrSlice nums = STR_SLICE("12345678");
-                    this->renderText(window, el->val.loc,
-                                     nums.slice(cell_val - 1, cell_val));
+                    this->renderCenteredText(
+                        window, render_rect,
+                        nums.slice(cell_val - 1, cell_val));
                 } break;
                 }
             } break;
             case Element::Type::et_flagged_grid_cell: {
+                SRect render_rect{el->val.loc, el->val.dims};
                 {
                     auto guard = this->quad_program.withTexture(this->button);
-                    this->renderQuad(window, SRect{el->val.loc, el->val.dims});
+                    this->renderQuad(window, render_rect);
                 }
 
                 this->baked_font.setColor(Color::grayscale(0));
-                this->renderText(window, el->val.loc, STR_SLICE("F"));
+                this->renderCenteredText(window, render_rect, STR_SLICE("F"));
             } break;
             case Element::Type::et_maybe_flagged_grid_cell: {
+                SRect render_rect{el->val.loc, el->val.dims};
                 {
                     auto guard = this->quad_program.withTexture(this->button);
-                    this->renderQuad(window, SRect{el->val.loc, el->val.dims});
+                    this->renderQuad(window, render_rect);
                 }
 
                 this->baked_font.setColor(Color::grayscale(0));
-                this->renderText(window, el->val.loc, STR_SLICE("?"));
+                this->renderCenteredText(window, render_rect, STR_SLICE("?"));
             } break;
             case Element::Type::et_generate_grid_btn: {
-                auto guard = this->quad_program.withTexture(this->button);
-                this->renderQuad(window, SRect{el->val.loc, el->val.dims});
+                SRect render_rect{el->val.loc, el->val.dims};
+                this->renderButton(window, render_rect, STR_SLICE("Generate"),
+                                   this->button, Color::grayscale(50));
             } break;
             case Element::Type::et_text: {
                 this->baked_font.setColor(el->val.color);
@@ -543,23 +545,15 @@ struct Context {
             } break;
             case Element::Type::et_width_inc:
             case Element::Type::et_height_inc: {
-                {
-                    auto gaurd = this->quad_program.withTexture(this->button);
-                    this->renderQuad(window, SRect{el->val.loc, el->val.dims});
-                }
-
-                this->baked_font.setColor(Color::grayscale(0));
-                this->renderText(window, el->val.loc, STR_SLICE("+"));
+                SRect render_rect{el->val.loc, el->val.dims};
+                this->renderButton(window, render_rect, STR_SLICE("+"),
+                                   this->button, Color::grayscale(50));
             } break;
             case Element::Type::et_width_dec:
             case Element::Type::et_height_dec: {
-                {
-                    auto gaurd = this->quad_program.withTexture(this->button);
-                    this->renderQuad(window, SRect{el->val.loc, el->val.dims});
-                }
-
-                this->baked_font.setColor(Color::grayscale(0));
-                this->renderText(window, el->val.loc, STR_SLICE("-"));
+                SRect render_rect{el->val.loc, el->val.dims};
+                this->renderButton(window, render_rect, STR_SLICE("-"),
+                                   this->button, Color::grayscale(50));
             } break;
             }
         }
@@ -705,12 +699,31 @@ struct Context {
         this->el_sentinel.enqueue(ll);
     }
 
+    auto renderButton(ThisWindow &window, SRect rect, StrSlice text,
+                      Texture2D &bg, Color fg) -> void {
+        {
+            auto guard = this->quad_program.withTexture(bg);
+            this->renderQuad(window, rect);
+        }
+        this->baked_font.setColor(fg);
+        this->renderCenteredText(window, rect, text);
+    }
+
     auto renderQuad(ThisWindow &window, SRect rect) -> void {
         window.renderQuad(this->quad_program, rect);
     }
 
     auto renderText(ThisWindow &window, SLocation loc, StrSlice text) -> void {
         window.renderText(this->baked_font, loc, text);
+    }
+
+    auto renderText(ThisWindow &window, SRect rect, StrSlice text) -> void {
+        window.renderText(this->baked_font, rect, text);
+    }
+
+    auto renderCenteredText(ThisWindow &window, SRect rect, StrSlice text)
+        -> void {
+        window.renderCenteredText(this->baked_font, rect, text);
     }
 };
 
@@ -719,14 +732,13 @@ int main() {
 
     GLFW glfw{&handle_error};
 
-    Arena window_arena{MEGABYTES(4)};
-    Arena grid_arena{KILOBYTES(4)};
-
-    Window<Context> window{800, 600, "Hello, world", std::move(window_arena),
-                           std::move(grid_arena)};
+    Window<Context> window{800, 600, "Hello, world"};
     window.setPin();
     window.setPos(500, 500);
     window.show();
+
+    double fps = 60.0;
+    double mspf = 1000.0 / fps;
 
     double last_time = glfwGetTime();
     while (!window.shouldClose()) {
@@ -734,9 +746,14 @@ int main() {
         window.processEvents();
 
         double next_time = glfwGetTime();
+        double delta_time_ms = 1000.0 * (next_time - last_time);
 
-        double delta_time = next_time - last_time;
         last_time = next_time;
+
+        if (delta_time_ms < mspf) {
+            unsigned int sleep_time = mspf - delta_time_ms;
+            usleep(sleep_time);
+        }
 
         if (window.isKeyPressed(GLFW_KEY_Q)) {
             window.close();

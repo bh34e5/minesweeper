@@ -7,6 +7,7 @@
 #include "gl.cc"
 #include "quadprogram.cc"
 #include "stb_truetype.cc"
+#include "utils.cc"
 
 #include <float.h>
 #include <math.h>
@@ -81,7 +82,7 @@ struct BakedFont {
 
     auto renderText(SRect rect, StrSlice text, Dims window_dims) -> void {
         SRect text_rect = this->getTextRect(text);
-        SRect text_bounds = this->getTextRenderRect(rect, text_rect);
+        SRect text_bounds{rect.ul, shrinkToFit(rect.dims, text_rect.dims)};
 
         this->renderTextInBounds(rect, text_rect, text_bounds, text,
                                  window_dims);
@@ -90,7 +91,7 @@ struct BakedFont {
     auto renderCenteredText(SRect rect, StrSlice text, Dims window_dims)
         -> void {
         SRect text_rect = this->getTextRect(text);
-        SRect text_bounds = this->getCenteredTextRenderRect(rect, text_rect);
+        SRect text_bounds = centerInShrink(rect, text_rect.dims);
 
         this->renderTextInBounds(rect, text_rect, text_bounds, text,
                                  window_dims);
@@ -133,46 +134,6 @@ struct BakedFont {
             this->quad_program.renderAt(char_rect, q.s0, q.t0, q.s1, q.t1,
                                         window_dims);
         }
-    }
-
-    auto getTextRenderRect(SRect base, SRect text) -> SRect {
-        Dims dims = this->getScaledTextDims(base, text);
-        return SRect{SLocation{base.ul.row, base.ul.col}, dims};
-    }
-
-    auto getCenteredTextRenderRect(SRect base, SRect text) -> SRect {
-        Dims dims = this->getScaledTextDims(base, text);
-
-        // fits inside, center it
-        ssize_t x_off = (base.dims.width - dims.width) / 2;
-        ssize_t y_off = (base.dims.height - dims.height) / 2;
-
-        return SRect{SLocation{base.ul.row + y_off, base.ul.col + x_off}, dims};
-    }
-
-    auto getScaledTextDims(SRect base, SRect text) -> Dims {
-        size_t b_width = base.dims.width;
-        size_t b_height = base.dims.height;
-
-        size_t t_width = text.dims.width;
-        size_t t_height = text.dims.height;
-
-        size_t scaled_width = t_width;
-        size_t scaled_height = t_height;
-
-        if (t_width > b_width || t_height > b_height) {
-            double scale = 1.0;
-            scale = fmin(scale, (double)b_width / (double)t_width);
-            scale = fmin(scale, (double)b_height / (double)t_height);
-
-            scaled_width = scale * text.dims.width;
-            scaled_height = scale * text.dims.height;
-        }
-
-        assert(b_width >= scaled_width && "Width invalid");
-        assert(b_height >= scaled_height && "Height invalid");
-
-        return Dims{scaled_width, scaled_height};
     }
 
     auto getTextRect(StrSlice text) -> SRect {

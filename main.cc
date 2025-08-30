@@ -296,6 +296,8 @@ struct Context {
             et_width_dec,
             et_height_inc,
             et_height_dec,
+            et_mine_inc,
+            et_mine_dec,
             et_generate_grid_btn,
             et_step_solver_btn,
             et_text,
@@ -384,6 +386,7 @@ struct Context {
     bool preview_grid;
     size_t width_input;
     size_t height_input;
+    size_t mine_input;
 
     Arena grid_arena;
     Grid grid;
@@ -399,7 +402,7 @@ struct Context {
           right_mouse_down(false), down_right_mouse_pos{},
           ev_sentinel{Event::et_empty}, el_sentinel{Element::Type::et_empty},
           preview_grid(false), width_input(10), height_input(10),
-          grid_arena{KILOBYTES(4)}, grid{}, solver{solver} {
+          mine_input(15), grid_arena{KILOBYTES(4)}, grid{}, solver{solver} {
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -593,14 +596,18 @@ struct Context {
 
         size_t width_len = 9 + 1;   // "Width: dd" + null
         size_t height_len = 10 + 1; // "Height: dd" + null
+        size_t mine_len = 9 + 1;    // "Mines: dd" + null
 
         char *width_label = this->arena.pushTN<char>(width_len);
         char *height_label = this->arena.pushTN<char>(height_len);
+        char *mine_label = this->arena.pushTN<char>(mine_len);
 
         StrSlice width_slice = sliceNPrintf(width_label, width_len,
                                             "Width: %zu", this->width_input);
         StrSlice height_slice = sliceNPrintf(height_label, height_len,
                                              "Height: %zu", this->height_input);
+        StrSlice mine_slice =
+            sliceNPrintf(mine_label, mine_len, "Mines: %zu", this->mine_input);
 
         Dims button_dims = this->getButtonDims(gen_slice, Dims{}, Dims{5, 5});
 
@@ -618,9 +625,17 @@ struct Context {
             this->arena, this->getButtonDims(inc_slice, inc_dec_dims, Dims{}));
         height_box.pushItem(this->arena, this->getTextDims(height_slice));
 
+        HBox mine_box{5};
+        mine_box.pushItem(this->arena,
+                          this->getButtonDims(dec_slice, inc_dec_dims, Dims{}));
+        mine_box.pushItem(this->arena,
+                          this->getButtonDims(inc_slice, inc_dec_dims, Dims{}));
+        mine_box.pushItem(this->arena, this->getTextDims(mine_slice));
+
         VBox vbox{5};
         vbox.pushItem(this->arena, width_box.total_dims);
         vbox.pushItem(this->arena, height_box.total_dims);
+        vbox.pushItem(this->arena, mine_box.total_dims);
         vbox.pushItem(this->arena, button_dims);
 
         SRect box_rect = centerIn(render_rect, vbox.total_dims);
@@ -630,6 +645,8 @@ struct Context {
             width_box.itemsIterator(vbox_it.getNext().ul);
         HBox::LocIterator height_box_it =
             height_box.itemsIterator(vbox_it.getNext().ul);
+        HBox::LocIterator mine_box_it =
+            mine_box.itemsIterator(vbox_it.getNext().ul);
 
         SRect button_box = vbox_it.getNext();
         assert(!vbox_it.hasNext());
@@ -658,6 +675,18 @@ struct Context {
 
         assert(!height_box_it.hasNext());
 
+        // push DEC,INC,LABEL
+        this->pushButtonAt(Element::Type::et_mine_dec, mine_box_it.getNext().ul,
+                           dec_slice, inc_dec_dims);
+
+        this->pushButtonAt(Element::Type::et_mine_inc, mine_box_it.getNext().ul,
+                           inc_slice, inc_dec_dims);
+
+        this->pushElement({Element::Type::et_text, mine_box_it.getNext().ul,
+                           mine_slice, Color::grayscale(50)});
+
+        assert(!mine_box_it.hasNext());
+
         // Generate button
         SLocation button_loc = centerIn(button_box, button_dims).ul;
         this->pushButtonAt(Element::Type::et_generate_grid_btn, button_loc,
@@ -683,7 +712,10 @@ struct Context {
                 this->renderQuad(window, SRect{el->val.loc, el->val.dims});
             } break;
             case Element::Type::et_empty_grid_cell: {
-                auto guard = this->quad_program.withTexture(this->button);
+                Texture2D &texture =
+                    this->getButtonTexture(false, is_active, is_focus);
+
+                auto guard = this->quad_program.withTexture(texture);
                 this->renderQuad(window, SRect{el->val.loc, el->val.dims});
             } break;
             case Element::Type::et_revealed_grid_cell: {
@@ -712,23 +744,13 @@ struct Context {
             } break;
             case Element::Type::et_flagged_grid_cell: {
                 SRect render_rect{el->val.loc, el->val.dims};
-                {
-                    auto guard = this->quad_program.withTexture(this->button);
-                    this->renderQuad(window, render_rect);
-                }
-
-                this->baked_font.setColor(Color::grayscale(0));
-                this->renderCenteredText(window, render_rect, STR_SLICE("F"));
+                this->renderButton(window, render_rect, {}, STR_SLICE("F"),
+                                   false, is_active, is_focus);
             } break;
             case Element::Type::et_maybe_flagged_grid_cell: {
                 SRect render_rect{el->val.loc, el->val.dims};
-                {
-                    auto guard = this->quad_program.withTexture(this->button);
-                    this->renderQuad(window, render_rect);
-                }
-
-                this->baked_font.setColor(Color::grayscale(0));
-                this->renderCenteredText(window, render_rect, STR_SLICE("?"));
+                this->renderButton(window, render_rect, {}, STR_SLICE("?"),
+                                   false, is_active, is_focus);
             } break;
             case Element::Type::et_text: {
                 this->baked_font.setColor(el->val.color);
@@ -739,7 +761,9 @@ struct Context {
             case Element::Type::et_width_inc:
             case Element::Type::et_width_dec:
             case Element::Type::et_height_inc:
-            case Element::Type::et_height_dec: {
+            case Element::Type::et_height_dec:
+            case Element::Type::et_mine_inc:
+            case Element::Type::et_mine_dec: {
                 SRect render_rect{el->val.loc, el->val.dims};
                 this->renderButton(window, render_rect, el->val.padding,
                                    el->val.text, el->val.disabled, is_active,
@@ -765,6 +789,8 @@ struct Context {
         case Element::Type::et_width_dec:
         case Element::Type::et_height_inc:
         case Element::Type::et_height_dec:
+        case Element::Type::et_mine_inc:
+        case Element::Type::et_mine_dec:
         case Element::Type::et_generate_grid_btn:
         case Element::Type::et_step_solver_btn: {
             return true;
@@ -849,7 +875,7 @@ struct Context {
                                 this->grid = generateGrid(
                                     this->grid_arena,
                                     Dims{this->width_input, this->height_input},
-                                    15, el->val.cell_loc);
+                                    this->mine_input, el->val.cell_loc);
                             } else {
                                 uncoverSelfAndNeighbors(this->grid,
                                                         el->val.cell_loc);
@@ -906,6 +932,22 @@ struct Context {
                                 window.needs_rerender = true;
                             }
                         } break;
+                        case Element::Type::et_mine_inc: {
+                            keep_processing_elems = false;
+
+                            if (this->mine_input < 99) {
+                                ++this->mine_input;
+                                window.needs_rerender = true;
+                            }
+                        } break;
+                        case Element::Type::et_mine_dec: {
+                            keep_processing_elems = false;
+
+                            if (this->mine_input > 1) {
+                                --this->mine_input;
+                                window.needs_rerender = true;
+                            }
+                        } break;
                         }
                     }
                 }
@@ -929,6 +971,8 @@ struct Context {
                         case Element::Type::et_width_dec:
                         case Element::Type::et_height_inc:
                         case Element::Type::et_height_dec:
+                        case Element::Type::et_mine_inc:
+                        case Element::Type::et_mine_dec:
                             break;
                         case Element::Type::et_empty_grid_cell: {
                             keep_processing_elems = false;

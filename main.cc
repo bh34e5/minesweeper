@@ -770,6 +770,8 @@ struct Context {
             return true;
         } break;
         }
+
+        assert(0 && "Unreachable");
     }
 
     auto getInteractableElements(ThisWindow &window, LLElement *&active_element,

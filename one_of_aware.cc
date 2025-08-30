@@ -55,7 +55,7 @@ struct OneOfAwareRule {
     size_t epoch_start_len;
 
     OneOfAwareRule(Arena &rule_arena)
-        : rule_arena(rule_arena), keeper({}), epoch_start_len(0) {}
+        : rule_arena(rule_arena), keeper({}), epoch_start_len(rule_arena.len) {}
 
     auto registerRule(GridSolver &solver) -> void {
         solver.registerRule(
@@ -63,8 +63,6 @@ struct OneOfAwareRule {
     }
 
     auto onStart(Grid grid) -> void {
-        this->epoch_start_len = this->rule_arena.len;
-
         for (Cell &cell : grid.cells) {
             if (cell.eff_number != 1) {
                 continue;
@@ -107,7 +105,6 @@ struct OneOfAwareRule {
     auto onFinish(Grid grid) -> void {
         this->keeper.options.clearRetainCapacity();
         this->rule_arena.reset(this->epoch_start_len);
-        this->epoch_start_len = 0;
     }
 
     auto apply(Grid grid, size_t row, size_t col) -> bool {

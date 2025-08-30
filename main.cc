@@ -5,6 +5,7 @@
 #include "graphics/gl.cc"
 #include "graphics/quadprogram.cc"
 #include "graphics/texture2d.cc"
+#include "graphics/utils.cc"
 #include "graphics/window.cc"
 #include "grid.cc"
 #include "one_of_aware.cc"
@@ -286,7 +287,7 @@ struct Context {
 
         glViewport(0, 0, width, height);
 
-        window.renderNow();
+        window.needs_render = true;
     }
 
     void mouseButtonCallback(ThisWindow &window, int button, int action, int) {
@@ -332,9 +333,21 @@ struct Context {
         Dims render_dims{(w > (2 * padding)) ? (w - 2 * padding) : 0,
                          (h > (2 * padding)) ? (h - 2 * padding) : 0};
 
+        ssize_t factor = 5; // must be > 1
+        ssize_t footer_height =
+            clamp<size_t>(0, render_dims.height / factor, 200);
+
         SLocation render_loc{
             static_cast<ssize_t>((w - render_dims.width) / 2),
             static_cast<ssize_t>((h - render_dims.height) / 2)};
+
+        Dims grid_dims{render_dims.width,
+                       (size_t)(render_dims.height - footer_height)};
+
+        SLocation footer_loc{render_loc.row + (factor - 1) * footer_height,
+                             render_loc.col};
+        Dims footer_dims{render_dims.width, (size_t)footer_height};
+        SRect footer_rect{footer_loc, footer_dims};
 
         this->pushElement(
             {Element::Type::et_background, render_loc, render_dims});
@@ -345,9 +358,9 @@ struct Context {
             size_t c_padding = this->grid.dims.width * 2 * cell_padding;
 
             size_t cell_width =
-                (render_dims.width - c_padding) / this->grid.dims.width;
+                (grid_dims.width - c_padding) / this->grid.dims.width;
             size_t cell_height =
-                (render_dims.height - r_padding) / this->grid.dims.height;
+                (grid_dims.height - r_padding) / this->grid.dims.height;
 
             Dims cell_dims{cell_width, cell_height};
 
@@ -390,9 +403,9 @@ struct Context {
             size_t c_padding = this->width_input * 2 * cell_padding;
 
             size_t cell_width =
-                (render_dims.width - c_padding) / this->width_input;
+                (grid_dims.width - c_padding) / this->width_input;
             size_t cell_height =
-                (render_dims.height - r_padding) / this->height_input;
+                (grid_dims.height - r_padding) / this->height_input;
 
             Dims cell_dims{cell_width, cell_height};
 
@@ -411,9 +424,19 @@ struct Context {
                                        cell_loc, cell_dims, Location{r, c}});
                 }
             }
+
+            this->buildFooter(footer_rect);
         } else {
             this->buildGenerateScene(render_dims);
         }
+    }
+
+    auto buildFooter(SRect footer_rect) -> void {
+        Dims buttom_dims{200, 100};
+        SRect button_rect = centerIn(footer_rect, buttom_dims);
+
+        this->pushElement({Element::Type::et_generate_grid_btn, button_rect.ul,
+                           button_rect.dims});
     }
 
     auto buildGenerateScene(Dims render_dims) -> void {

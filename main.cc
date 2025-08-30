@@ -287,7 +287,11 @@ struct Context {
 
         glViewport(0, 0, width, height);
 
-        window.needs_render = true;
+        window.needs_rerender = true;
+    }
+
+    void cursorPosCallback(ThisWindow &window, double, double) {
+        window.needs_repaint = true;
     }
 
     void mouseButtonCallback(ThisWindow &window, int button, int action, int) {
@@ -591,14 +595,20 @@ struct Context {
         renderScene(window);
     }
 
+    auto paint(ThisWindow &window) -> void { renderScene(window); }
+
     auto processEvents(ThisWindow &window) -> void {
         LLEvent *ev = nullptr;
         while ((ev = this->ev_sentinel.dequeue()) != nullptr) {
             switch (ev->val) {
             case Event::et_empty:
-            case Event::et_mouse_release:
-            case Event::et_right_mouse_release:
                 break;
+            case Event::et_mouse_release:
+            case Event::et_right_mouse_release: {
+                // FIXME(bhester): this may not be necessary in some cases... do
+                // I want to propagate active element status?
+                window.needs_repaint = true;
+            } break;
             case Event::et_mouse_press: {
                 LLElement *el = &this->el_sentinel;
 
@@ -630,7 +640,7 @@ struct Context {
                                                         el->val.cell_loc);
                             }
 
-                            window.needs_render = true;
+                            window.needs_rerender = true;
                         } break;
                         case Element::Type::et_generate_grid_btn: {
                             keep_processing_elems = false;
@@ -638,14 +648,14 @@ struct Context {
                             printf("Previewing grid\n");
 
                             this->preview_grid = true;
-                            window.needs_render = true;
+                            window.needs_rerender = true;
                         } break;
                         case Element::Type::et_width_inc: {
                             keep_processing_elems = false;
 
                             if (this->width_input < 99) {
                                 ++this->width_input;
-                                window.needs_render = true;
+                                window.needs_rerender = true;
                             }
                         } break;
                         case Element::Type::et_width_dec: {
@@ -653,7 +663,7 @@ struct Context {
 
                             if (this->width_input > 1) {
                                 --this->width_input;
-                                window.needs_render = true;
+                                window.needs_rerender = true;
                             }
                         } break;
                         case Element::Type::et_height_inc: {
@@ -661,7 +671,7 @@ struct Context {
 
                             if (this->height_input < 99) {
                                 ++this->height_input;
-                                window.needs_render = true;
+                                window.needs_rerender = true;
                             }
                         } break;
                         case Element::Type::et_height_dec: {
@@ -669,7 +679,7 @@ struct Context {
 
                             if (this->height_input > 1) {
                                 --this->height_input;
-                                window.needs_render = true;
+                                window.needs_rerender = true;
                             }
                         } break;
                         }
@@ -700,14 +710,14 @@ struct Context {
 
                             flagCell(this->grid, el->val.cell_loc);
 
-                            window.needs_render = true;
+                            window.needs_rerender = true;
                         } break;
                         case Element::Type::et_flagged_grid_cell: {
                             keep_processing_elems = false;
 
                             unflagCell(this->grid, el->val.cell_loc);
 
-                            window.needs_render = true;
+                            window.needs_rerender = true;
                         } break;
                         }
                     }

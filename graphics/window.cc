@@ -120,6 +120,16 @@ template <typename T> struct HasRender {
     static constexpr bool value = decltype(test<T>(std::declval<int>()))::value;
 };
 
+template <typename T> struct HasPaint {
+    template <typename U, typename = decltype(std::declval<U>().paint(
+                              std::declval<Window<U> &>()))>
+    static std::true_type test(int);
+
+    template <typename> static std::false_type test(...);
+
+    static constexpr bool value = decltype(test<T>(std::declval<int>()))::value;
+};
+
 template <typename T> struct HasProcessEvents {
     template <typename U, typename = decltype(std::declval<U>().processEvents(
                               std::declval<Window<U> &>()))>
@@ -148,7 +158,8 @@ template <typename T> struct Window {
     Shader FontFragShader;
     T ctx;
 
-    bool needs_render;
+    bool needs_repaint;
+    bool needs_rerender;
 
     template <typename... Args>
     Window(int width, int height, char const *title, Args &&...args)
@@ -159,7 +170,8 @@ template <typename T> struct Window {
                                             STR_SLICE(QuadFragShaderText))},
           FontFragShader{Shader::fromSource(GL_FRAGMENT_SHADER,
                                             STR_SLICE(FontFragShaderText))},
-          ctx(*this, std::forward<Args>(args)...), needs_render(true) {
+          ctx(*this, std::forward<Args>(args)...), needs_repaint(true),
+          needs_rerender(true) {
         glfwSetFramebufferSizeCallback(this->window, &windowFramebufferSize);
         glfwSetCursorPosCallback(this->window, &windowCursorPos);
         glfwSetMouseButtonCallback(this->window, &windowMouseButton);
@@ -216,15 +228,29 @@ template <typename T> struct Window {
     auto show() -> void { glfwShowWindow(this->window); }
 
     auto render() -> void {
-        if (this->needs_render) {
-            this->needs_render = false;
+        if (this->needs_rerender) {
+            this->needs_repaint = false;
+            this->needs_rerender = false;
             this->renderNow();
+        } else if (this->needs_repaint) {
+            this->needs_repaint = false;
+            this->paintNow();
         }
     }
 
     auto renderNow() -> void {
         glClear(GL_COLOR_BUFFER_BIT);
         if constexpr (HasRender<T>::value) {
+            this->ctx.render(*this);
+        }
+        glfwSwapBuffers(this->window);
+    }
+
+    auto paintNow() -> void {
+        glClear(GL_COLOR_BUFFER_BIT);
+        if constexpr (HasPaint<T>::value) {
+            this->ctx.paint(*this);
+        } else if constexpr (HasRender<T>::value) {
             this->ctx.render(*this);
         }
         glfwSwapBuffers(this->window);
@@ -258,19 +284,20 @@ template <typename T> struct Window {
         return Dims{static_cast<size_t>(width), static_cast<size_t>(height)};
     }
 
-    auto getClampedMouseLocation() -> SLocation {
+    auto getMouseLocation() -> SLocation {
         double xpos, ypos;
         glfwGetCursorPos(this->window, &xpos, &ypos);
 
-        Dims window_dims = this->getDims();
-        double dw = window_dims.width;
-        double dh = window_dims.height;
+        return SLocation{static_cast<ssize_t>(ypos),
+                         static_cast<ssize_t>(xpos)};
+    }
 
-        double clamped_row = clamp(0.0, ypos, dh);
-        double clamped_col = clamp(0.0, xpos, dw);
+    auto getClampedMouseLocation() -> SLocation {
+        Dims dims = this->getDims();
+        SLocation mouse_loc = this->getMouseLocation();
 
-        return SLocation{static_cast<ssize_t>(clamped_row),
-                         static_cast<ssize_t>(clamped_col)};
+        return SLocation{clamp<ssize_t>(0, mouse_loc.row, dims.height),
+                         clamp<ssize_t>(0, mouse_loc.col, dims.width)};
     }
 
     auto quadProgramOp() -> Op<QuadProgram> {

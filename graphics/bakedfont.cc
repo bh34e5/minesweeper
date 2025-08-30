@@ -170,4 +170,22 @@ struct BakedFont {
 
         return SRect::fromCorners(text_bb_ul, text_bb_br);
     }
+
+    auto getTextDims(StrSlice text) -> Dims {
+        SRect text_rect = this->getTextRect(text);
+        return text_rect.dims;
+    }
+
+    auto getLineHeightTextDims(StrSlice text) -> Dims {
+        SRect text_rect = this->getTextRect(text);
+
+        assert(text_rect.ul.row <= 0);
+        if (-text_rect.ul.row < this->pixel_height) {
+            ssize_t row_diff = this->pixel_height + text_rect.ul.row;
+
+            text_rect.ul.row -= row_diff;
+            text_rect.dims.height += row_diff;
+        }
+        return text_rect.dims;
+    }
 };

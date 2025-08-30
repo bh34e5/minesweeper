@@ -16,6 +16,7 @@
 // auto generated
 #include "generated/generated.cc"
 
+#include <assert.h>
 #include <stdlib.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -140,6 +141,8 @@ template <typename T> struct LinkedList {
         ll.prev = &ll;
     }
 
+    static auto isEmpty(LinkedList &ll) -> bool { return ll.next == &ll; }
+
     auto enqueue(LinkedList *ll) -> void {
         ll->prev = this->prev;
         ll->next = this;
@@ -161,6 +164,112 @@ template <typename T> struct LinkedList {
         ll->next = nullptr;
 
         return ll;
+    }
+};
+
+struct HBox {
+    struct LocIterator {
+        LinkedList<Dims> *cur;
+        LinkedList<Dims> *end;
+        SLocation cur_loc;
+        size_t gap;
+        size_t height;
+
+        auto getNext() -> SRect {
+            assert(this->hasNext() && "Invalid iterator");
+
+            Dims cur_dims = this->cur->val;
+            SLocation cur_loc = this->cur_loc;
+
+            this->cur = this->cur->next;
+            this->cur_loc.col += cur_dims.width + this->gap;
+
+            return SRect{cur_loc, Dims{cur_dims.width, this->height}};
+        }
+
+        auto hasNext() -> bool { return cur != end; }
+    };
+
+    size_t gap;
+    Dims total_dims;
+    LinkedList<Dims> items_sentinel;
+
+    HBox() : HBox(0) {}
+    HBox(size_t gap) : gap(gap), total_dims{}, items_sentinel{} {
+        LinkedList<Dims>::initSentinel(this->items_sentinel);
+    }
+
+    auto pushItem(Arena &arena, Dims dims) -> void {
+        LinkedList<Dims> *element = arena.pushT<LinkedList<Dims>>({dims});
+
+        if (!LinkedList<Dims>::isEmpty(this->items_sentinel)) {
+            this->total_dims.width += this->gap;
+        }
+        this->total_dims.width += dims.width;
+
+        if (this->total_dims.height < dims.height) {
+            this->total_dims.height = dims.height;
+        }
+
+        this->items_sentinel.enqueue(element);
+    }
+
+    auto itemsIterator(SLocation base) -> LocIterator {
+        return LocIterator{this->items_sentinel.next, &this->items_sentinel,
+                           base, this->gap, this->total_dims.height};
+    }
+};
+
+struct VBox {
+    struct LocIterator {
+        LinkedList<Dims> *cur;
+        LinkedList<Dims> *end;
+        SLocation cur_loc;
+        size_t gap;
+        size_t width;
+
+        auto getNext() -> SRect {
+            assert(this->hasNext() && "Invalid iterator");
+
+            Dims cur_dims = this->cur->val;
+            SLocation cur_loc = this->cur_loc;
+
+            this->cur = this->cur->next;
+            this->cur_loc.row += cur_dims.height + this->gap;
+
+            return SRect{cur_loc, Dims{this->width, cur_dims.height}};
+        }
+
+        auto hasNext() -> bool { return cur != end; }
+    };
+
+    size_t gap;
+    Dims total_dims;
+    LinkedList<Dims> items_sentinel;
+
+    VBox() : VBox(0) {}
+    VBox(size_t gap) : gap(gap), total_dims{}, items_sentinel{} {
+        LinkedList<Dims>::initSentinel(this->items_sentinel);
+    }
+
+    auto pushItem(Arena &arena, Dims dims) -> void {
+        LinkedList<Dims> *element = arena.pushT<LinkedList<Dims>>({dims});
+
+        if (!LinkedList<Dims>::isEmpty(this->items_sentinel)) {
+            this->total_dims.height += this->gap;
+        }
+        this->total_dims.height += dims.height;
+
+        if (this->total_dims.width < dims.width) {
+            this->total_dims.width = dims.width;
+        }
+
+        this->items_sentinel.enqueue(element);
+    }
+
+    auto itemsIterator(SLocation base) -> LocIterator {
+        return LocIterator{this->items_sentinel.next, &this->items_sentinel,
+                           base, this->gap, this->total_dims.width};
     }
 };
 
@@ -188,26 +297,44 @@ struct Context {
             et_height_inc,
             et_height_dec,
             et_generate_grid_btn,
+            et_step_solver_btn,
             et_text,
         };
 
         Type type;
         SLocation loc;
         Dims dims;
+        Dims padding;
         StrSlice text;
         Color color;
         Location cell_loc;
+        bool disabled;
 
         Element(Type type)
-            : type(type), loc{}, dims{}, text{}, color{}, cell_loc{} {}
+            : type(type), loc{}, dims{}, padding{}, text{}, color{}, cell_loc{},
+              disabled{} {}
         Element(Type type, SLocation loc, Dims dims)
-            : type(type), loc(loc), dims(dims), text{}, color{}, cell_loc{} {}
+            : type(type), loc(loc), dims(dims), padding{}, text{}, color{},
+              cell_loc{}, disabled{} {}
+        Element(Type type, SLocation loc, Dims dims, StrSlice text)
+            : type(type), loc(loc), dims(dims), padding{}, text(text), color{},
+              cell_loc{}, disabled{} {}
         Element(Type type, SLocation loc, StrSlice text, Color color)
-            : type(type), loc(loc), dims{}, text(text), color(color),
-              cell_loc{} {}
+            : type(type), loc(loc), dims{}, padding{}, text(text), color(color),
+              cell_loc{}, disabled{} {}
         Element(Type type, SLocation loc, Dims dims, Location cell_loc)
-            : type(type), loc(loc), dims(dims), text{}, color{},
-              cell_loc(cell_loc) {}
+            : type(type), loc(loc), dims(dims), padding{}, text{}, color{},
+              cell_loc(cell_loc), disabled{} {}
+        Element(Type type, SLocation loc, bool disabled)
+            : type(type), loc(loc), dims{}, padding{}, text{}, color{},
+              cell_loc{}, disabled(disabled) {}
+        Element(Type type, SLocation loc, Dims dims, bool disabled)
+            : type(type), loc(loc), dims(dims), padding{}, text{}, color{},
+              cell_loc{}, disabled(disabled) {}
+        Element(Type type, SLocation loc, Dims dims, Dims padding,
+                StrSlice text, bool disabled)
+            : type(type), loc(loc), dims(dims), padding(padding), text(text),
+              color{}, cell_loc{}, disabled(disabled) {}
 
         auto contains(SLocation loc) -> bool {
             if (loc.row < this->loc.row) {
@@ -238,7 +365,12 @@ struct Context {
 
     QuadProgram quad_program;
     BakedFont baked_font;
+
     Texture2D button;
+    Texture2D disabled_button;
+    Texture2D focus_button;
+    Texture2D active_button;
+
     Texture2D background;
 
     bool mouse_down;
@@ -255,26 +387,29 @@ struct Context {
 
     Arena grid_arena;
     Grid grid;
+    GridSolver &solver;
 
-    static size_t const font_pixel_height = 30;
-
-    Context(ThisWindow &window)
+    Context(ThisWindow &window, GridSolver &solver)
         : arena{MEGABYTES(4)}, mark(this->arena.len),
           quad_program(window.quadProgram()),
-          baked_font{window.bakedFont(this->arena, "./fonts/Roboto-Black.ttf",
-                                      font_pixel_height)},
-          button{}, background{}, mouse_down(false), down_mouse_pos{},
+          baked_font{
+              window.bakedFont(this->arena, "./fonts/Roboto-Black.ttf", 30)},
+          button{}, disabled_button{}, focus_button{}, active_button{},
+          background{}, mouse_down(false), down_mouse_pos{},
           right_mouse_down(false), down_right_mouse_pos{},
           ev_sentinel{Event::et_empty}, el_sentinel{Element::Type::et_empty},
           preview_grid(false), width_input(10), height_input(10),
-          grid_arena{KILOBYTES(4)}, grid{} {
+          grid_arena{KILOBYTES(4)}, grid{}, solver{solver} {
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
         glFrontFace(GL_CCW);
         glClearColor(0.0, 0.0, 0.0, 0.0);
 
-        this->button.grayscale(204, Dims{1, 1});
+        this->button.grayscale(200, Dims{1, 1});
+        this->focus_button.grayscale(180, Dims{1, 1});
+        this->active_button.grayscale(160, Dims{1, 1});
+        this->disabled_button.grayscale(220, Dims{1, 1});
         this->background.grayscale(120, Dims{1, 1});
 
         LLEvent::initSentinel(this->ev_sentinel);
@@ -401,6 +536,8 @@ struct Context {
                         {et, cell_loc, cell_dims, Location{r, c}});
                 }
             }
+
+            this->buildFooter(footer_rect);
         } else if (this->preview_grid) {
             size_t cell_padding = 1;
             size_t r_padding = this->height_input * 2 * cell_padding;
@@ -436,22 +573,23 @@ struct Context {
     }
 
     auto buildFooter(SRect footer_rect) -> void {
-        Dims buttom_dims{200, 100};
-        SRect button_rect = centerIn(footer_rect, buttom_dims);
+        StrSlice text = STR_SLICE("Step Solver");
+        Dims padding{5, 5};
 
-        this->pushElement({Element::Type::et_generate_grid_btn, button_rect.ul,
-                           button_rect.dims});
+        this->pushButtonCenteredIn(Element::Type::et_step_solver_btn,
+                                   footer_rect, text, {}, padding,
+                                   this->preview_grid);
     }
 
     auto buildGenerateScene(Dims render_dims) -> void {
-        size_t w = render_dims.width;
-        size_t h = render_dims.height;
+        SRect render_rect{SLocation{0, 0}, render_dims};
 
-        Dims button_dims{
-            125, 20 + font_pixel_height}; // TODO(bhester): get text bounds
+        ssize_t inc_dec_dim = 30;
+        Dims inc_dec_dims{(size_t)inc_dec_dim, (size_t)inc_dec_dim};
 
-        SLocation button_loc{static_cast<ssize_t>((h - button_dims.height) / 2),
-                             static_cast<ssize_t>((w - button_dims.width) / 2)};
+        StrSlice dec_slice = STR_SLICE("-");
+        StrSlice inc_slice = STR_SLICE("+");
+        StrSlice gen_slice = STR_SLICE("Generate");
 
         size_t width_len = 9 + 1;   // "Width: dd" + null
         size_t height_len = 10 + 1; // "Height: dd" + null
@@ -464,48 +602,79 @@ struct Context {
         StrSlice height_slice = sliceNPrintf(height_label, height_len,
                                              "Height: %zu", this->height_input);
 
-        ssize_t signed_pixel_height = font_pixel_height;
-        SLocation width_loc{button_loc.row - 2 * (signed_pixel_height + 10),
-                            button_loc.col + 10};
-        SLocation height_loc{button_loc.row - 1 * (signed_pixel_height + 10),
-                             button_loc.col + 10};
+        Dims button_dims = this->getButtonDims(gen_slice, Dims{}, Dims{5, 5});
+
+        HBox width_box{5};
+        width_box.pushItem(
+            this->arena, this->getButtonDims(dec_slice, inc_dec_dims, Dims{}));
+        width_box.pushItem(
+            this->arena, this->getButtonDims(inc_slice, inc_dec_dims, Dims{}));
+        width_box.pushItem(this->arena, this->getTextDims(width_slice));
+
+        HBox height_box{5};
+        height_box.pushItem(
+            this->arena, this->getButtonDims(dec_slice, inc_dec_dims, Dims{}));
+        height_box.pushItem(
+            this->arena, this->getButtonDims(inc_slice, inc_dec_dims, Dims{}));
+        height_box.pushItem(this->arena, this->getTextDims(height_slice));
+
+        VBox vbox{5};
+        vbox.pushItem(this->arena, width_box.total_dims);
+        vbox.pushItem(this->arena, height_box.total_dims);
+        vbox.pushItem(this->arena, button_dims);
+
+        SRect box_rect = centerIn(render_rect, vbox.total_dims);
+
+        VBox::LocIterator vbox_it = vbox.itemsIterator(box_rect.ul);
+        HBox::LocIterator width_box_it =
+            width_box.itemsIterator(vbox_it.getNext().ul);
+        HBox::LocIterator height_box_it =
+            height_box.itemsIterator(vbox_it.getNext().ul);
+
+        SRect button_box = vbox_it.getNext();
+        assert(!vbox_it.hasNext());
 
         // push DEC,INC,LABEL
-        this->pushElement(
-            {Element::Type::et_width_dec,
-             SLocation{width_loc.row,
-                       width_loc.col - 2 * (signed_pixel_height + 5)},
-             Dims{font_pixel_height, font_pixel_height}});
-        this->pushElement(
-            {Element::Type::et_width_inc,
-             SLocation{width_loc.row,
-                       width_loc.col - 1 * (signed_pixel_height + 5)},
-             Dims{font_pixel_height, font_pixel_height}});
-        this->pushElement({Element::Type::et_text, width_loc, width_slice,
-                           Color::grayscale(50)});
+        this->pushButtonAt(Element::Type::et_width_dec,
+                           width_box_it.getNext().ul, dec_slice, inc_dec_dims);
+
+        this->pushButtonAt(Element::Type::et_width_inc,
+                           width_box_it.getNext().ul, inc_slice, inc_dec_dims);
+
+        this->pushElement({Element::Type::et_text, width_box_it.getNext().ul,
+                           width_slice, Color::grayscale(50)});
+
+        assert(!width_box_it.hasNext());
 
         // push DEC,INC,LABEL
-        this->pushElement(
-            {Element::Type::et_height_dec,
-             SLocation{height_loc.row,
-                       height_loc.col - 2 * (signed_pixel_height + 5)},
-             Dims{font_pixel_height, font_pixel_height}});
-        this->pushElement(
-            {Element::Type::et_height_inc,
-             SLocation{height_loc.row,
-                       height_loc.col - 1 * (signed_pixel_height + 5)},
-             Dims{font_pixel_height, font_pixel_height}});
-        this->pushElement({Element::Type::et_text, height_loc, height_slice,
-                           Color::grayscale(50)});
+        this->pushButtonAt(Element::Type::et_height_dec,
+                           height_box_it.getNext().ul, dec_slice, inc_dec_dims);
 
-        this->pushElement(
-            {Element::Type::et_generate_grid_btn, button_loc, button_dims});
+        this->pushButtonAt(Element::Type::et_height_inc,
+                           height_box_it.getNext().ul, inc_slice, inc_dec_dims);
+
+        this->pushElement({Element::Type::et_text, height_box_it.getNext().ul,
+                           height_slice, Color::grayscale(50)});
+
+        assert(!height_box_it.hasNext());
+
+        // Generate button
+        SLocation button_loc = centerIn(button_box, button_dims).ul;
+        this->pushButtonAt(Element::Type::et_generate_grid_btn, button_loc,
+                           gen_slice, {}, Dims{5, 5});
     }
 
     auto renderScene(ThisWindow &window) -> void {
         LLElement *el = &this->el_sentinel;
 
+        LLElement *active_element = nullptr;
+        LLElement *focus_element = nullptr;
+        this->getInteractableElements(window, active_element, focus_element);
+
         while ((el = el->next) != &this->el_sentinel) {
+            bool is_active = el == active_element;
+            bool is_focus = !this->mouse_down && el == focus_element;
+
             switch (el->val.type) {
             case Element::Type::et_empty:
                 break;
@@ -561,27 +730,71 @@ struct Context {
                 this->baked_font.setColor(Color::grayscale(0));
                 this->renderCenteredText(window, render_rect, STR_SLICE("?"));
             } break;
-            case Element::Type::et_generate_grid_btn: {
-                SRect render_rect{el->val.loc, el->val.dims};
-                this->renderButton(window, render_rect, STR_SLICE("Generate"),
-                                   this->button, Color::grayscale(50));
-            } break;
             case Element::Type::et_text: {
                 this->baked_font.setColor(el->val.color);
                 this->renderText(window, el->val.loc, el->val.text);
             } break;
+            case Element::Type::et_generate_grid_btn:
+            case Element::Type::et_step_solver_btn:
             case Element::Type::et_width_inc:
-            case Element::Type::et_height_inc: {
-                SRect render_rect{el->val.loc, el->val.dims};
-                this->renderButton(window, render_rect, STR_SLICE("+"),
-                                   this->button, Color::grayscale(50));
-            } break;
             case Element::Type::et_width_dec:
+            case Element::Type::et_height_inc:
             case Element::Type::et_height_dec: {
                 SRect render_rect{el->val.loc, el->val.dims};
-                this->renderButton(window, render_rect, STR_SLICE("-"),
-                                   this->button, Color::grayscale(50));
+                this->renderButton(window, render_rect, el->val.padding,
+                                   el->val.text, el->val.disabled, is_active,
+                                   is_focus);
             } break;
+            }
+        }
+    }
+
+    auto interactable(Element::Type type) -> bool {
+        switch (type) {
+        case Element::Type::et_empty:
+        case Element::Type::et_background:
+        case Element::Type::et_text: {
+            return false;
+        } break;
+
+        case Element::Type::et_empty_grid_cell:
+        case Element::Type::et_revealed_grid_cell:
+        case Element::Type::et_flagged_grid_cell:
+        case Element::Type::et_maybe_flagged_grid_cell:
+        case Element::Type::et_width_inc:
+        case Element::Type::et_width_dec:
+        case Element::Type::et_height_inc:
+        case Element::Type::et_height_dec:
+        case Element::Type::et_generate_grid_btn:
+        case Element::Type::et_step_solver_btn: {
+            return true;
+        } break;
+        }
+    }
+
+    auto getInteractableElements(ThisWindow &window, LLElement *&active_element,
+                                 LLElement *&focus_element) -> void {
+        LLElement *el = &this->el_sentinel;
+
+        SLocation mouse_loc = window.getMouseLocation();
+        SLocation down_loc = this->mouse_down ? this->down_mouse_pos
+                                              : SLocation{LONG_MIN, LONG_MIN};
+
+        while ((el = el->prev) != &this->el_sentinel) {
+            if (!interactable(el->val.type)) {
+                continue;
+            }
+
+            if (el->val.contains(mouse_loc)) {
+                if (focus_element == nullptr) {
+                    focus_element = el;
+                }
+            }
+
+            if (el->val.contains(down_loc)) {
+                if (active_element == nullptr) {
+                    active_element = el;
+                }
             }
         }
     }
@@ -650,6 +863,15 @@ struct Context {
                             this->preview_grid = true;
                             window.needs_rerender = true;
                         } break;
+                        case Element::Type::et_step_solver_btn: {
+                            printf("Stepping solver\n");
+
+                            bool did_work = this->solver.step(this->grid);
+                            printf("Solver %s work\n",
+                                   did_work ? "did" : "did not do");
+
+                            window.needs_rerender = true;
+                        } break;
                         case Element::Type::et_width_inc: {
                             keep_processing_elems = false;
 
@@ -700,6 +922,7 @@ struct Context {
                         case Element::Type::et_maybe_flagged_grid_cell:
                         case Element::Type::et_text:
                         case Element::Type::et_generate_grid_btn:
+                        case Element::Type::et_step_solver_btn:
                         case Element::Type::et_width_inc:
                         case Element::Type::et_width_dec:
                         case Element::Type::et_height_inc:
@@ -727,19 +950,97 @@ struct Context {
         }
     }
 
+    auto pushButtonAt(Element::Type type, SLocation loc, StrSlice text,
+                      Dims min_dims = {}, Dims padding = {},
+                      bool disabled = false) -> SRect {
+        Dims render_dims = this->getButtonDims(text, min_dims, padding);
+        SRect rect{loc, render_dims};
+
+        pushElement({type, loc, render_dims, padding, text, disabled});
+        return rect;
+    }
+
+    auto pushButtonCenteredIn(Element::Type type, SRect rect, StrSlice text,
+                              Dims min_dims = {}, Dims padding = {},
+                              bool disabled = false) -> SRect {
+        Dims render_dims = this->getButtonDims(text, min_dims, padding);
+        SRect centered = centerIn(rect, render_dims);
+
+        pushElement(
+            {type, centered.ul, centered.dims, padding, text, disabled});
+        return centered;
+    }
+
+    auto getTextDims(StrSlice text) -> Dims {
+        return this->baked_font.getTextDims(text);
+    }
+
+    auto getButtonDims(StrSlice text, Dims min_dims, Dims padding) -> Dims {
+        Dims text_dims = this->baked_font.getLineHeightTextDims(text);
+        Dims render_dims = text_dims;
+        if (render_dims.width < min_dims.width) {
+            render_dims.width = min_dims.width;
+        }
+        if (render_dims.height < min_dims.height) {
+            render_dims.height = min_dims.height;
+        }
+
+        if (padding.width > 0) {
+            render_dims.width += 2 * padding.width;
+        }
+        if (padding.height > 0) {
+            render_dims.height += 2 * padding.height;
+        }
+
+        return render_dims;
+    }
+
     auto pushElement(Element el) -> void {
         LLElement *ll = this->arena.pushT<LLElement>(el);
         this->el_sentinel.enqueue(ll);
     }
 
-    auto renderButton(ThisWindow &window, SRect rect, StrSlice text,
-                      Texture2D &bg, Color fg) -> void {
-        {
-            auto guard = this->quad_program.withTexture(bg);
-            this->renderQuad(window, rect);
+    auto getButtonTexture(bool disabled, bool active, bool focus)
+        -> Texture2D & {
+        if (disabled) {
+            return this->disabled_button;
+        } else if (active) {
+            return this->active_button;
+        } else if (focus) {
+            return this->focus_button;
+        } else {
+            return this->button;
         }
-        this->baked_font.setColor(fg);
-        this->renderCenteredText(window, rect, text);
+    }
+
+    auto renderButton(ThisWindow &window, SRect rect, Dims padding,
+                      StrSlice text, bool disabled, bool active, bool focus)
+        -> void {
+        SRect render_rect = rect;
+        if (rect.dims.area() == 0) {
+            render_rect.dims = this->baked_font.getTextDims(text);
+        }
+
+        Texture2D &btn_texture =
+            this->getButtonTexture(disabled, active, focus);
+
+        auto guard = this->quad_program.withTexture(btn_texture);
+        this->renderQuad(window, render_rect);
+
+        SRect text_rect{
+            SLocation{
+                render_rect.ul.row + (ssize_t)padding.height,
+                render_rect.ul.col + (ssize_t)padding.width,
+            },
+            Dims{
+                render_rect.dims.width - 2 * padding.width,
+                render_rect.dims.height - 2 * padding.height,
+            },
+        };
+
+        unsigned char font_color = disabled ? 100 : 50;
+        this->baked_font.setColor(Color::grayscale(font_color));
+        this->renderCenteredText(window, text_rect, text);
     }
 
     auto renderQuad(ThisWindow &window, SRect rect) -> void {
@@ -765,7 +1066,12 @@ int main() {
 
     GLFW glfw{&handle_error};
 
-    Window<Context> window{800, 600, "Hello, world"};
+    GridSolver solver;
+    solver.registerRule(GridSolver::Rule{flag_remaining_cells});
+    solver.registerRule(GridSolver::Rule{show_hidden_cells});
+    registerPatterns(solver);
+
+    Window<Context> window{800, 600, "Hello, world", solver};
     window.setPin();
     window.setPos(500, 500);
     window.show();

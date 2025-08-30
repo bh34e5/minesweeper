@@ -5,17 +5,24 @@ FLAGS := -g -MMD -Wall -Wpedantic -std=c++17
 LIBS_Darwin := -lglfw -framework OpenGL
 LIBS_Linux  := -lglfw -lGL
 
+DBG_Darwin := lldb
+DBG_Linux  := gdb
+
 LIBS := ${LIBS_${shell uname -s}}
+DBG  := ${DBG_${shell uname -s}}
 
 PATTERNS  := $(wildcard patterns/*.pat)
 GENERATED := $(patsubst patterns/%.pat,generated/pat_%.cc,$(PATTERNS))
 
-.PHONY: all clean run
+.PHONY: all clean run debug
 
 all: minesweeper codegen
 
 run: minesweeper
 	./minesweeper
+
+debug: minesweeper
+	$(DBG) ./minesweeper
 
 minesweeper: main.cc generated/generated.cc
 	@echo Building minesweeper

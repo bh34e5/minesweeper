@@ -185,8 +185,8 @@ auto generateGrid(Arena &arena, Dims dims, size_t mine_count,
                   Location start_loc) -> Grid {
     size_t cell_count = dims.area();
     assert(cell_count > 0 && "Invalid dimensions");
-    assert(start_loc.row < dims.width && "Invalid start row");
-    assert(start_loc.col < dims.height && "Invalid start column");
+    assert(start_loc.row < dims.height && "Invalid start row");
+    assert(start_loc.col < dims.width && "Invalid start column");
 
     size_t neighbor_count = neighborCount(start_loc, dims);
     assert(mine_count < (cell_count - neighbor_count) && "Invalid mine count");

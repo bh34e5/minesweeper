@@ -80,13 +80,7 @@ struct GridSolver {
 
     auto stepInner(Grid &grid, bool &did_work) -> bool {
         if (this->state.invalid) {
-            this->resetEpoch(grid);
-
-            this->state.row = 0;
-            this->state.col = 0;
-            this->state.rule = 0;
-            this->state.did_epoch_work = false;
-            this->state.invalid = false;
+            this->reset(grid);
         } else if (this->state.row == 0 && this->state.col == 0 &&
                    this->state.rule == 0) {
             for (auto &rule : this->rules.slice()) {
@@ -129,14 +123,20 @@ struct GridSolver {
         return has_next_step;
     }
 
+    auto reset(Grid grid) -> void {
+        this->resetEpoch(grid);
+
+        this->state.row = 0;
+        this->state.col = 0;
+        this->state.rule = 0;
+        this->state.did_epoch_work = false;
+        this->state.invalid = false;
+    }
+
     auto resetEpoch(Grid grid) -> void {
         // close out any epochs
         for (auto &rule : this->rules.slice()) {
             rule.onEpochFinish(grid);
-        }
-
-        for (auto &rule : this->rules.slice()) {
-            rule.onEpochStart(grid);
         }
     }
 

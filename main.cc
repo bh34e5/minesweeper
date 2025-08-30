@@ -288,6 +288,7 @@ struct Context {
         enum Type {
             et_empty,
             et_background,
+            et_restart_btn,
             et_empty_grid_cell,
             et_revealed_grid_cell,
             et_flagged_grid_cell,
@@ -384,6 +385,7 @@ struct Context {
     LLElement el_sentinel;
 
     bool preview_grid;
+    bool grid_won;
     size_t width_input;
     size_t height_input;
     size_t mine_input;
@@ -401,8 +403,9 @@ struct Context {
           background{}, mouse_down(false), down_mouse_pos{},
           right_mouse_down(false), down_right_mouse_pos{},
           ev_sentinel{Event::et_empty}, el_sentinel{Element::Type::et_empty},
-          preview_grid(false), width_input(10), height_input(10),
-          mine_input(15), grid_arena{KILOBYTES(4)}, grid{}, solver{solver} {
+          preview_grid(false), grid_won(false), width_input(10),
+          height_input(10), mine_input(15), grid_arena{KILOBYTES(4)}, grid{},
+          solver{solver} {
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -475,26 +478,54 @@ struct Context {
         Dims render_dims{(w > (2 * padding)) ? (w - 2 * padding) : 0,
                          (h > (2 * padding)) ? (h - 2 * padding) : 0};
 
-        ssize_t factor = 5; // must be > 1
-        ssize_t footer_height =
-            clamp<size_t>(0, render_dims.height / factor, 200);
-
         SLocation render_loc{
             static_cast<ssize_t>((w - render_dims.width) / 2),
             static_cast<ssize_t>((h - render_dims.height) / 2)};
 
+        SRect render_rect{render_loc, render_dims};
+
+        ssize_t factor = 5; // must be > 1
+        ssize_t footer_height =
+            clamp<size_t>(0, render_dims.height / factor, 100);
+
         Dims grid_dims{render_dims.width,
                        (size_t)(render_dims.height - footer_height)};
 
-        SLocation footer_loc{render_loc.row + (factor - 1) * footer_height,
-                             render_loc.col};
+        SLocation footer_loc{
+            render_loc.row + (ssize_t)(render_dims.height - footer_height),
+            render_loc.col,
+        };
         Dims footer_dims{render_dims.width, (size_t)footer_height};
         SRect footer_rect{footer_loc, footer_dims};
 
         this->pushElement(
             {Element::Type::et_background, render_loc, render_dims});
 
-        if (this->grid.dims.area() > 0) {
+        if (this->grid_won) {
+            StrSlice you_win_slice = STR_SLICE("You Win!");
+            StrSlice restart_slice = STR_SLICE("Restart");
+
+            Dims button_padding{10, 10};
+            Dims button_dims =
+                this->getButtonDims(you_win_slice, {}, button_padding);
+
+            VBox box{10};
+            box.pushItem(this->arena, this->getTextDims(you_win_slice));
+            box.pushItem(this->arena, button_dims);
+
+            SLocation base_loc = centerIn(render_rect, box.total_dims).ul;
+            VBox::LocIterator vbox_it = box.itemsIterator(base_loc);
+
+            this->pushElement({Element::Type::et_text, vbox_it.getNext().ul,
+                               you_win_slice, Color::grayscale(50)});
+
+            SRect button_rect = vbox_it.getNext();
+            this->pushButtonAt(Element::Type::et_restart_btn,
+                               centerIn(button_rect, button_dims).ul,
+                               restart_slice, {}, button_padding);
+
+            assert(!vbox_it.hasNext());
+        } else if (this->grid.dims.area() > 0) {
             size_t cell_padding = 1;
             size_t r_padding = this->grid.dims.height * 2 * cell_padding;
             size_t c_padding = this->grid.dims.width * 2 * cell_padding;
@@ -756,6 +787,7 @@ struct Context {
                 this->baked_font.setColor(el->val.color);
                 this->renderText(window, el->val.loc, el->val.text);
             } break;
+            case Element::Type::et_restart_btn:
             case Element::Type::et_generate_grid_btn:
             case Element::Type::et_step_solver_btn:
             case Element::Type::et_width_inc:
@@ -781,6 +813,7 @@ struct Context {
             return false;
         } break;
 
+        case Element::Type::et_restart_btn:
         case Element::Type::et_empty_grid_cell:
         case Element::Type::et_revealed_grid_cell:
         case Element::Type::et_flagged_grid_cell:
@@ -865,6 +898,18 @@ struct Context {
                         case Element::Type::et_maybe_flagged_grid_cell:
                         case Element::Type::et_text:
                             break;
+                        case Element::Type::et_restart_btn: {
+                            keep_processing_elems = false;
+
+                            // clean up solver
+                            this->solver.resetEpoch(this->grid);
+
+                            this->grid_arena.reset(0);
+                            this->grid = Grid{};
+                            this->grid_won = false;
+
+                            window.needs_rerender = true;
+                        } break;
                         case Element::Type::et_empty_grid_cell: {
                             keep_processing_elems = false;
 
@@ -879,6 +924,10 @@ struct Context {
                             } else {
                                 uncoverSelfAndNeighbors(this->grid,
                                                         el->val.cell_loc);
+
+                                if (gridSolved(grid)) {
+                                    this->grid_won = true;
+                                }
                             }
 
                             window.needs_rerender = true;
@@ -962,6 +1011,7 @@ struct Context {
                         switch (el->val.type) {
                         case Element::Type::et_empty:
                         case Element::Type::et_background:
+                        case Element::Type::et_restart_btn:
                         case Element::Type::et_revealed_grid_cell:
                         case Element::Type::et_maybe_flagged_grid_cell:
                         case Element::Type::et_text:

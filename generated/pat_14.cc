@@ -3,6 +3,7 @@
 #include "../dirutils.cc"
 #include "../grid.cc"
 #include "../solver.cc"
+#include "../strslice.cc"
 
 #include <sys/types.h>
 
@@ -303,5 +304,5 @@ auto pat_14(Grid grid, size_t row, size_t col, void *) -> bool {
 }
 
 auto register_pat_14(GridSolver &solver) -> void {
-    solver.registerRule(GridSolver::Rule{pat_14});
+    solver.registerRule(GridSolver::Rule{pat_14, STR_SLICE("pat_14")});
 }

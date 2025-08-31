@@ -46,3 +46,15 @@ auto centerIn(SRect base, Dims target) -> SRect {
 inline auto centerInShrink(SRect base, Dims target) -> SRect {
     return centerIn(base, shrinkToFit(base.dims, target));
 }
+
+auto expandToMin(Dims dims, Dims min_dims) -> Dims {
+    Dims result = dims;
+    if (result.width < min_dims.width) {
+        result.width = min_dims.width;
+    }
+    if (result.height < min_dims.height) {
+        result.height = min_dims.height;
+    }
+
+    return result;
+}

@@ -15,7 +15,9 @@ struct Color {
     unsigned char g;
     unsigned char b;
 
-    static auto grayscale(unsigned char g) -> Color { return Color{g, g, g}; }
+    static constexpr auto grayscale(unsigned char g) -> Color {
+        return Color{g, g, g};
+    }
 };
 
 inline auto toGlLoc(size_t val, size_t range) -> GLfloat {

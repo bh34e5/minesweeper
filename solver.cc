@@ -2,6 +2,7 @@
 
 #include "dlist.cc"
 #include "grid.cc"
+#include "strslice.cc"
 
 #include <limits.h>
 #include <stdio.h>
@@ -12,6 +13,7 @@ struct SolveState {
     size_t col;
     size_t rule;
     bool did_epoch_work;
+    size_t last_work_rule;
     bool invalid;
 };
 
@@ -26,18 +28,21 @@ struct GridSolver {
         OnEpochStart *onStart;
         OnEpochFinish *onFinish;
         void *data;
+        StrSlice name;
 
         Rule()
             : apply(nullptr), onStart(nullptr), onFinish(nullptr),
-              data(nullptr) {}
-        Rule(Apply *apply)
-            : apply(apply), onStart(nullptr), onFinish(nullptr), data(nullptr) {
-        }
-        Rule(Apply *apply, void *data)
-            : apply(apply), onStart(nullptr), onFinish(nullptr), data(data) {}
+              data(nullptr), name{} {}
+        Rule(Apply *apply, StrSlice name)
+            : apply(apply), onStart(nullptr), onFinish(nullptr), data(nullptr),
+              name(name) {}
+        Rule(Apply *apply, void *data, StrSlice name)
+            : apply(apply), onStart(nullptr), onFinish(nullptr), data(data),
+              name(name) {}
         Rule(Apply *apply, OnEpochStart *onStart, OnEpochFinish *onFinish,
-             void *data)
-            : apply(apply), onStart(onStart), onFinish(onFinish), data(data) {}
+             void *data, StrSlice name)
+            : apply(apply), onStart(onStart), onFinish(onFinish), data(data),
+              name(name) {}
 
         auto applyRule(Grid grid, size_t row, size_t col) -> bool {
             if (this->apply == nullptr) {
@@ -90,11 +95,13 @@ struct GridSolver {
             this->state.did_epoch_work = false;
         }
 
-        Rule &rule = this->rules.at(this->state.rule++);
+        size_t rule_to_apply = this->state.rule++;
+        Rule &rule = this->rules.at(rule_to_apply);
         did_work = rule.applyRule(grid, this->state.row, this->state.col);
 
         if (did_work) {
             this->state.did_epoch_work = true;
+            this->state.last_work_rule = rule_to_apply;
         }
 
         bool has_next_step = true;
@@ -130,6 +137,7 @@ struct GridSolver {
         this->state.col = 0;
         this->state.rule = 0;
         this->state.did_epoch_work = false;
+        this->state.last_work_rule = 0;
         this->state.invalid = false;
     }
 

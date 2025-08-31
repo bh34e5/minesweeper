@@ -58,8 +58,9 @@ struct OneOfAwareRule {
         : rule_arena(rule_arena), keeper({}), epoch_start_len(rule_arena.len) {}
 
     auto registerRule(GridSolver &solver) -> void {
-        solver.registerRule(
-            GridSolver::Rule{applyRule, onEpochStart, onEpochFinish, this});
+        solver.registerRule(GridSolver::Rule{applyRule, onEpochStart,
+                                             onEpochFinish, this,
+                                             STR_SLICE("one_of_aware")});
     }
 
     auto onStart(Grid grid) -> void {

@@ -240,6 +240,7 @@ auto writeBody(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
     fprintf(out, "#include \"../dirutils.cc\"\n");
     fprintf(out, "#include \"../grid.cc\"\n");
     fprintf(out, "#include \"../solver.cc\"\n");
+    fprintf(out, "#include \"../strslice.cc\"\n");
     fprintf(out, "\n");
     fprintf(out, "#include <sys/types.h>\n");
     fprintf(out, "\n");
@@ -288,8 +289,10 @@ auto writeBody(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
     fprintf(out, "\n");
     fprintf(out, "auto register_%.*s(GridSolver &solver) -> void {\n",
             STR_ARGS(out_fn));
-    fprintf(out, "    solver.registerRule(GridSolver::Rule{%.*s});\n",
-            STR_ARGS(out_fn));
+    fprintf(out,
+            "    solver.registerRule(GridSolver::Rule{%.*s, "
+            "STR_SLICE(\"%.*s\")});\n",
+            STR_ARGS(out_fn), STR_ARGS(out_fn));
     fprintf(out, "}\n");
 }
 

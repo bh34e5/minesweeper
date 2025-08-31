@@ -43,25 +43,35 @@ struct Texture2D {
     auto useTex() -> void { glBindTexture(GL_TEXTURE_2D, this->texture); }
 
     auto solidColor(Color color, Dims dims) -> void {
+        this->solidColor(color, 255, dims);
+    }
+
+    auto solidColor(Color color, unsigned char alpha, Dims dims) -> void {
         this->useTex();
 
-        size_t data_len = dims.width * dims.height * 3;
+        size_t element_size = sizeof(Color) + 1;
+        size_t data_len = dims.width * dims.height * element_size;
         unsigned char *data = new unsigned char[data_len];
 
-        for (size_t i = 0; i < data_len; i += 3) {
+        for (size_t i = 0; i < data_len; i += element_size) {
             data[i + 0] = color.r;
             data[i + 1] = color.g;
             data[i + 2] = color.b;
+            data[i + 3] = alpha;
         }
 
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, dims.width, dims.height, 0,
-                     GL_RGB, GL_UNSIGNED_BYTE, data);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, dims.width, dims.height, 0,
+                     GL_RGBA, GL_UNSIGNED_BYTE, data);
 
         delete[] data;
     }
 
     auto grayscale(unsigned char g, Dims dims) {
         solidColor(Color::grayscale(g), dims);
+    }
+
+    auto grayscale(unsigned char g, unsigned alpha, Dims dims) {
+        solidColor(Color::grayscale(g), alpha, dims);
     }
 
     auto bindAlphaData(Dims dims, unsigned char *pixels) -> void {

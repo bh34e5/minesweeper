@@ -4,7 +4,6 @@
 
 #include <assert.h>
 #include <stdio.h>
-#include <sys/types.h>
 
 #define KILOBYTES(n) (10 * 1024)
 #define MEGABYTES(n) (10 * 1024 * 1024)

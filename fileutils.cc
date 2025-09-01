@@ -7,7 +7,6 @@
 
 #include <stdio.h>
 #include <sys/stat.h>
-#include <sys/types.h>
 
 static StrSlice PAT_SUFFIX = STR_SLICE(".pat");
 static StrSlice OUT_DIR = STR_SLICE("generated/");

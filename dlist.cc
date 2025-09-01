@@ -3,7 +3,7 @@
 #include "slice.cc"
 
 #include <assert.h>
-#include <sys/types.h>
+#include <stdio.h>
 #include <utility> // for std::move
 
 template <typename T> struct DList {

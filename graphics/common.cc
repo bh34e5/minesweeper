@@ -3,6 +3,7 @@
 #include "../utils.cc"
 #include "gl.cc"
 
+#include <GLFW/glfw3.h>
 #include <stdio.h>
 
 inline auto glColor(unsigned char c) -> GLfloat {

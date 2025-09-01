@@ -7,4 +7,5 @@ minesweeper.dSYM/
 codegen.dSYM/
 
 .ccls
+.ccls-cache/
 tags

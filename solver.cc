@@ -4,9 +4,9 @@
 #include "grid.cc"
 #include "strslice.cc"
 
+#include <assert.h>
 #include <limits.h>
 #include <stdio.h>
-#include <sys/types.h>
 
 struct SolveState {
     size_t row;

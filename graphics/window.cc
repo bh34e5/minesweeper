@@ -10,8 +10,10 @@
 #include "shader.cc"
 #include "stb_truetype.cc"
 
+#include <GLFW/glfw3.h>
 #include <assert.h>
-#include <sys/types.h>
+#include <stdio.h>
+#include <type_traits>
 #include <utility>
 
 char const QuadVertShaderText[] = R"(

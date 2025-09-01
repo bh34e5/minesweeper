@@ -5,7 +5,6 @@
 #include "gl.cc"
 
 #include <stdio.h>
-#include <sys/types.h>
 #include <utility>
 
 struct Texture2D {

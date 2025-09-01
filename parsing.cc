@@ -6,8 +6,8 @@
 #include "tokens.cc"
 #include "utils.cc"
 
+#include <assert.h>
 #include <stdio.h>
-#include <sys/types.h>
 
 struct Walls {
     unsigned int north;

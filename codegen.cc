@@ -8,7 +8,6 @@
 
 #include <assert.h>
 #include <stdio.h>
-#include <sys/types.h>
 
 auto writeStructDefinition(FILE *out, StrSlice out_fn, Dims dims) -> void {
     fprintf(out, "struct Pattern_%.*s {\n", STR_ARGS(out_fn));

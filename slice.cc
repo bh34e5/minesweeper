@@ -2,7 +2,6 @@
 
 #include <assert.h>
 #include <stddef.h>
-#include <sys/types.h>
 
 template <typename T> struct Slice {
     T *ptr;

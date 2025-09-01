@@ -9,10 +9,12 @@
 #include "stb_truetype.cc"
 #include "utils.cc"
 
+#include <assert.h>
 #include <float.h>
 #include <math.h>
 #include <string.h>
 #include <sys/types.h>
+#include <utility>
 
 auto scaleFloat(float val, ssize_t text_val, ssize_t base_val,
                 ssize_t text_range, ssize_t base_range) -> ssize_t {

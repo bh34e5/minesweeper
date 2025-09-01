@@ -16,9 +16,11 @@
 // auto generated
 #include "generated/generated.cc"
 
+#include <GLFW/glfw3.h>
 #include <assert.h>
+#include <limits.h>
+#include <stdio.h>
 #include <stdlib.h>
-#include <sys/types.h>
 #include <unistd.h>
 #include <utility>
 

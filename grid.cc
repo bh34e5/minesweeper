@@ -9,7 +9,6 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/types.h>
 
 enum CellType {
     ct_number,

@@ -1,23 +1,17 @@
 #pragma once
 
 #include "../dirutils.cc"
+#include "../slice.cc"
 #include "common.cc"
 #include "gl.cc"
 #include "shader.cc"
 #include "texture2d.cc"
 
 #include <sys/types.h>
-#include <utility>
 
 struct QuadProgram {
-    struct WithGuard {
-        QuadProgram &ref;
-        Texture2D &texture;
-
-        ~WithGuard() { this->ref.swapTexture(this->texture); }
-    };
-
     Program program;
+
     GLint n_pos;
     GLint n_tex_p;
     GLint tex;
@@ -25,75 +19,22 @@ struct QuadProgram {
     GLuint vao;
     GLuint vbo;
 
-    Texture2D texture;
-
-    QuadProgram(Program &&program, GLint n_pos, GLint n_tex_p, GLint tex,
-                Texture2D &&texture)
-        : program(std::move(program)), n_pos(n_pos), n_tex_p(n_tex_p), tex(tex),
-          texture(std::move(texture)) {
-        glGenVertexArrays(1, &this->vao);
-        glGenBuffers(1, &this->vbo);
-
-        this->program.useProgram();
-        glBindVertexArray(this->vao);
-        glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
-        glEnableVertexAttribArray(this->n_pos);
-        glEnableVertexAttribArray(this->n_tex_p);
-
-        glVertexAttribPointer(this->n_pos, 2, GL_FLOAT, GL_FALSE,
-                              4 * sizeof(GLfloat),
-                              (void const *)(0 * sizeof(GLfloat)));
-        glVertexAttribPointer(this->n_tex_p, 2, GL_FLOAT, GL_FALSE,
-                              4 * sizeof(GLfloat),
-                              (void const *)(2 * sizeof(GLfloat)));
-    }
-    QuadProgram(QuadProgram const &other) = delete;
-    QuadProgram(QuadProgram &&other)
-        : program(std::move(other.program)), n_pos(other.n_pos),
-          n_tex_p(other.n_tex_p), tex(other.tex), vao(other.vao),
-          vbo(other.vbo), texture(std::move(other.texture)) {
-        other.vao = 0;
-        other.vbo = 0;
-    }
-
-    ~QuadProgram() {
-        glDeleteVertexArrays(1, &this->vao);
-        glDeleteBuffers(1, &this->vbo);
-    }
-
-    QuadProgram &operator=(QuadProgram &&other) {
-        QuadProgram tmp{std::move(*this)};
-
-        this->program = std::move(other.program);
-        this->n_pos = other.n_pos;
-        this->n_tex_p = other.n_tex_p;
-        this->tex = other.tex;
-        this->vao = other.vao;
-        this->vbo = other.vbo;
-        this->texture = std::move(other.texture);
-
-        other.vao = 0;
-        other.vbo = 0;
-
-        return *this;
-    }
-
     auto renderAt(SRect rect, float tex_loc_x0, float tex_loc_y0,
-                  float tex_loc_x1, float tex_loc_y1, Dims window_dims)
-        -> void {
+                  float tex_loc_x1, float tex_loc_y1, Dims window_dims,
+                  Texture2D texture) -> void {
         this->program.useProgram();
         this->setPosition(rect, tex_loc_x0, tex_loc_y0, tex_loc_x1, tex_loc_y1,
                           window_dims);
 
         glActiveTexture(GL_TEXTURE0);
         glUniform1i(this->tex, 0); // GL_TEXTURE0
-        this->texture.useTex();    // bind texture to GL_TEXTURE0
+        texture.useTex();          // bind texture to GL_TEXTURE0
 
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     }
 
-    auto renderAt(SRect rect, Dims window_dims) -> void {
-        this->renderAt(rect, 0.0f, 0.0f, 1.0f, 1.0f, window_dims);
+    auto renderAt(SRect rect, Dims window_dims, Texture2D texture) -> void {
+        this->renderAt(rect, 0.0f, 0.0f, 1.0f, 1.0f, window_dims, texture);
     }
 
     auto setPosition(SRect rect, float tex_loc_x0, float tex_loc_y0,
@@ -132,13 +73,32 @@ struct QuadProgram {
     auto setPosition(SRect rect, Dims window_dims) -> void {
         this->setPosition(rect, 0.0f, 0.0f, 1.0f, 1.0f, window_dims);
     }
-
-    auto swapTexture(Texture2D &other) -> void {
-        std::swap(this->texture, other);
-    }
-
-    auto withTexture(Texture2D &texture) -> WithGuard {
-        this->swapTexture(texture);
-        return WithGuard{*this, texture};
-    }
 };
+
+auto makeQuadProgram(Program p, GLint n_pos, GLint n_tex_p, GLint tex)
+    -> QuadProgram {
+    QuadProgram q{p, n_pos, n_tex_p, tex};
+
+    glGenVertexArrays(1, &q.vao);
+    glGenBuffers(1, &q.vbo);
+
+    q.program.useProgram();
+    glBindVertexArray(q.vao);
+    glBindBuffer(GL_ARRAY_BUFFER, q.vbo);
+    glEnableVertexAttribArray(q.n_pos);
+    glEnableVertexAttribArray(q.n_tex_p);
+
+    glVertexAttribPointer(q.n_pos, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat),
+                          (void const *)(0 * sizeof(GLfloat)));
+    glVertexAttribPointer(q.n_tex_p, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat),
+                          (void const *)(2 * sizeof(GLfloat)));
+
+    return q;
+}
+
+auto deleteQuadProgram(QuadProgram *quad_program) -> void {
+    glDeleteVertexArrays(1, &quad_program->vao);
+    glDeleteBuffers(1, &quad_program->vbo);
+
+    deleteProgram(&quad_program->program);
+}

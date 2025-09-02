@@ -35,25 +35,17 @@ inline auto toGlLoc(ssize_t val, size_t range) -> GLfloat {
     return static_cast<GLfloat>(gl);
 }
 
-struct GLFW {
-    GLFW(GLFWerrorfun callback) {
-        glfwSetErrorCallback(callback);
+auto initGLFW(GLFWerrorfun callback) -> void {
+    glfwSetErrorCallback(callback);
 
-        int res = glfwInit();
-        if (res < 0) {
-            fprintf(stderr, "Failed to init glfw");
-            EXIT(1);
-        }
-
-        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    int res = glfwInit();
+    if (res < 0) {
+        fprintf(stderr, "Failed to init glfw");
+        EXIT(1);
     }
 
-    ~GLFW() { glfwTerminate(); }
-
-    auto setErrorCallback(GLFWerrorfun callback) -> void {
-        glfwSetErrorCallback(callback);
-    }
-};
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+}

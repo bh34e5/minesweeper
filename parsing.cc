@@ -50,7 +50,7 @@ struct Pattern {
     Slice<Action> actions;
 };
 
-auto readWalls(StrSlice &cur_contents, Walls &walls) -> void {
+auto readWalls(StrSlice *cur_contents, Walls *walls) -> void {
     Token next = nextToken(cur_contents);
     do {
         if (next.type != TokenType::tt_space) {
@@ -63,16 +63,16 @@ auto readWalls(StrSlice &cur_contents, Walls &walls) -> void {
         Token target_tok = nextToken(cur_contents);
         switch (target_tok.type) {
         case tt_north: {
-            target = &walls.north;
+            target = &walls->north;
         } break;
         case tt_east: {
-            target = &walls.east;
+            target = &walls->east;
         } break;
         case tt_south: {
-            target = &walls.south;
+            target = &walls->south;
         } break;
         case tt_west: {
-            target = &walls.west;
+            target = &walls->west;
         } break;
         case tt_hidden:
         case tt_number:
@@ -101,7 +101,7 @@ auto readWalls(StrSlice &cur_contents, Walls &walls) -> void {
     expectToken(cur_contents, TokenType::tt_newline);
 }
 
-auto readPattern(Arena &arena, StrSlice contents) -> Pattern {
+auto readPattern(Arena *arena, StrSlice contents) -> Pattern {
     size_t width = 0;
     size_t height = 0;
 
@@ -119,7 +119,7 @@ auto readPattern(Arena &arena, StrSlice contents) -> Pattern {
 
     cur_contents = contents;
     while (cur_contents.len > 0) {
-        Token token_resp = nextToken(cur_contents);
+        Token token_resp = nextToken(&cur_contents);
         switch (token_resp.type) {
         case tt_wall: {
             if (!first_char) {
@@ -127,7 +127,7 @@ auto readPattern(Arena &arena, StrSlice contents) -> Pattern {
                 EXIT(1);
             }
 
-            readWalls(cur_contents, walls);
+            readWalls(&cur_contents, &walls);
 
             // set the location we should use when reading pattern info
             pattern_start = cur_contents;
@@ -199,18 +199,18 @@ auto readPattern(Arena &arena, StrSlice contents) -> Pattern {
 
     Dims dims{width, height};
 
-    PatternCell *cells_ptr = arena.pushTN<PatternCell>(dims.area());
+    PatternCell *cells_ptr = arena->pushTN<PatternCell>(dims.area());
     Slice<PatternCell> cells{cells_ptr, dims.area()};
 
     size_t actions_len = 0;
-    Action *actions_ptr = arena.pushTN<Action>(dims.area());
+    Action *actions_ptr = arena->pushTN<Action>(dims.area());
 
     cur_contents = pattern_start;
     for (size_t r = 0; r < dims.height; ++r) {
         for (size_t c = 0; c < dims.width; ++c) {
             PatternCell &in_cell = cells[r * dims.width + c];
 
-            Token token_resp = nextToken(cur_contents);
+            Token token_resp = nextToken(&cur_contents);
             switch (token_resp.type) {
             case tt_hidden: {
                 in_cell = PatternCell{PatternCellType::pct_hidden};
@@ -248,18 +248,18 @@ auto readPattern(Arena &arena, StrSlice contents) -> Pattern {
             }
         }
         // read new line
-        expectToken(cur_contents, TokenType::tt_newline);
+        expectToken(&cur_contents, TokenType::tt_newline);
     }
 
     // read new line
-    expectToken(cur_contents, TokenType::tt_newline);
+    expectToken(&cur_contents, TokenType::tt_newline);
 
     for (size_t r = 0; r < dims.height; ++r) {
         for (size_t c = 0; c < dims.width; ++c) {
             PatternCell in_cell = cells[r * dims.width + c];
             PatternCell out_cell{};
 
-            Token token_resp = nextToken(cur_contents);
+            Token token_resp = nextToken(&cur_contents);
             switch (token_resp.type) {
             case tt_hidden: {
                 out_cell = PatternCell{PatternCellType::pct_hidden};
@@ -336,9 +336,9 @@ auto readPattern(Arena &arena, StrSlice contents) -> Pattern {
             }
         }
         // read new line
-        expectToken(cur_contents, TokenType::tt_newline);
+        expectToken(&cur_contents, TokenType::tt_newline);
     }
-    expectToken(cur_contents, TokenType::tt_eof);
+    expectToken(&cur_contents, TokenType::tt_eof);
 
     return Pattern{dims, walls, cells, Slice<Action>{actions_ptr, actions_len}};
 }

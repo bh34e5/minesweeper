@@ -49,9 +49,6 @@ struct PatternIterator {
     StrSlice needle;
     size_t idx;
 
-    explicit PatternIterator(StrSlice haystack, StrSlice needle)
-        : haystack(haystack), needle(needle), idx(0) {}
-
     auto next() -> Op<size_t> {
         if (this->idx >= this->haystack.len) {
             return Op<size_t>::empty();
@@ -68,19 +65,8 @@ struct PatternIterator {
     }
 };
 
-auto toZString(StrSlice str) -> char * {
-    char *z_str = new char[str.len + 1];
-    if (z_str == nullptr) {
-        fprintf(stderr, "Out of memory\n");
-        EXIT(1);
-    }
-
-    snprintf(z_str, str.len + 1, "%.*s", STR_ARGS(str));
-    return z_str;
-}
-
-auto toZString(Arena &arena, StrSlice str) -> char * {
-    char *z_str = arena.pushTN<char>(str.len + 1);
+auto toZString(Arena *arena, StrSlice str) -> char * {
+    char *z_str = arena->pushTN<char>(str.len + 1);
     snprintf(z_str, str.len + 1, "%.*s", STR_ARGS(str));
 
     return z_str;

@@ -13,7 +13,7 @@ auto writeStructDefinition(FILE *out, StrSlice out_fn, Dims dims) -> void {
     fprintf(out, "struct Pattern_%.*s {\n", STR_ARGS(out_fn));
     for (size_t r = 0; r < dims.height; ++r) {
         for (size_t c = 0; c < dims.width; ++c) {
-            fprintf(out, "    Cell &c_%zu_%zu;\n", r, c);
+            fprintf(out, "    Cell *c_%zu_%zu;\n", r, c);
         }
     }
     fprintf(out, "};\n");
@@ -24,7 +24,7 @@ auto writePatternMatchCell(FILE *out, PatternCell cell, Location loc) -> void {
     switch (cell.type) {
     case pct_hidden: {
         fprintf(out,
-                "    if (pat.c_%zu_%zu.display_type != "
+                "    if (pat.c_%zu_%zu->display_type != "
                 "CellDisplayType::cdt_hidden) {\n",
                 loc.row, loc.col);
         fprintf(out, "        return false;\n");
@@ -35,21 +35,21 @@ auto writePatternMatchCell(FILE *out, PatternCell cell, Location loc) -> void {
         // NOTE(bhester): Since we are using the "effective number" to check
         // literals, we want to count a flag as a "number" in the sense that it
         // can't be flagged
-        fprintf(
-            out,
-            "    if ((pat.c_%zu_%zu.display_type != CellDisplayType::cdt_value "
-            "|| pat.c_%zu_%zu.type != CellType::ct_number) && "
-            "(pat.c_%zu_%zu.display_type != CellDisplayType::cdt_flag)) {\n",
-            loc.row, loc.col, loc.row, loc.col, loc.row, loc.col);
+        fprintf(out,
+                "    if ((pat.c_%zu_%zu->display_type != "
+                "CellDisplayType::cdt_value || pat.c_%zu_%zu->type != "
+                "CellType::ct_number) && (pat.c_%zu_%zu->display_type != "
+                "CellDisplayType::cdt_flag)) {\n",
+                loc.row, loc.col, loc.row, loc.col, loc.row, loc.col);
         fprintf(out, "        return false;\n");
         fprintf(out, "    }\n");
         fprintf(out, "\n");
     } break;
     case pct_literal: {
         fprintf(out,
-                "    if (pat.c_%zu_%zu.display_type != "
-                "CellDisplayType::cdt_value || pat.c_%zu_%zu.type != "
-                "CellType::ct_number || pat.c_%zu_%zu.eff_number != %d) {\n",
+                "    if (pat.c_%zu_%zu->display_type != "
+                "CellDisplayType::cdt_value || pat.c_%zu_%zu->type != "
+                "CellType::ct_number || pat.c_%zu_%zu->eff_number != %d) {\n",
                 loc.row, loc.col, loc.row, loc.col, loc.row, loc.col,
                 cell.number);
         fprintf(out, "        return false;\n");
@@ -67,8 +67,8 @@ auto writeActionCell(FILE *out, Action action, Location loc) -> void {
     switch (action.action) {
     case act_flag: {
         fprintf(out,
-                "    if (pat.c_%zu_%zu.display_type == "
-                "CellDisplayType::cdt_hidden || pat.c_%zu_%zu.display_type == "
+                "    if (pat.c_%zu_%zu->display_type == "
+                "CellDisplayType::cdt_hidden || pat.c_%zu_%zu->display_type == "
                 "CellDisplayType::cdt_maybe_flag) {\n",
                 loc.row, loc.col, loc.row, loc.col);
         fprintf(out, "        flagCell(grid, pat.c_%zu_%zu);\n", loc.row,
@@ -78,15 +78,16 @@ auto writeActionCell(FILE *out, Action action, Location loc) -> void {
         fprintf(out, "\n");
     } break;
     case act_execute: {
-        fprintf(out,
-                "    if (pat.c_%zu_%zu.display_type == "
-                "CellDisplayType::cdt_maybe_flag || pat.c_%zu_%zu.display_type "
-                "== CellDisplayType::cdt_hidden) {\n",
-                loc.row, loc.col, loc.row, loc.col);
+        fprintf(
+            out,
+            "    if (pat.c_%zu_%zu->display_type == "
+            "CellDisplayType::cdt_maybe_flag || pat.c_%zu_%zu->display_type == "
+            "CellDisplayType::cdt_hidden) {\n",
+            loc.row, loc.col, loc.row, loc.col);
         fprintf(out,
                 "        // mark as hidden to remove possible maybe_flag\n");
         fprintf(out,
-                "        pat.c_%zu_%zu.display_type = "
+                "        pat.c_%zu_%zu->display_type = "
                 "CellDisplayType::cdt_hidden;\n",
                 loc.row, loc.col);
         fprintf(out, "        uncoverSelfAndNeighbors(grid, pat.c_%zu_%zu);\n",
@@ -101,7 +102,7 @@ auto writeActionCell(FILE *out, Action action, Location loc) -> void {
 auto writeCheckPatternFunction(FILE *out, StrSlice out_fn, Pattern pattern)
     -> void {
     fprintf(out,
-            "auto checkPattern_%.*s(Grid grid, size_t row, size_t col, "
+            "auto checkPattern_%.*s(Grid *grid, size_t row, size_t col, "
             "Pattern_%.*s pat) -> bool {\n",
             STR_ARGS(out_fn), STR_ARGS(out_fn));
     fprintf(out, "    // check pattern match\n");
@@ -173,15 +174,15 @@ auto writeFunctionGeneric(FILE *out, StrSlice out_fn, Dims dims, size_t num,
     Dims dims_adj = DAdj(dims);
 
     fprintf(out,
-            "auto %.*s_%zu%c(Grid grid, size_t row, size_t col) -> bool {\n",
+            "auto %.*s_%zu%c(Grid *grid, size_t row, size_t col) -> bool {\n",
             STR_ARGS(out_fn), num, suffix);
     fprintf(out, "    size_t pat_width = %zu;\n", dims_adj.width);
     fprintf(out, "    size_t pat_height = %zu;\n", dims_adj.height);
     fprintf(out, "\n");
-    fprintf(out, "    if ((col + pat_width) > grid.dims.width) {\n");
+    fprintf(out, "    if ((col + pat_width) > grid->dims.width) {\n");
     fprintf(out, "        return false;\n");
     fprintf(out, "    }\n");
-    fprintf(out, "    if ((row + pat_height) > grid.dims.height) {\n");
+    fprintf(out, "    if ((row + pat_height) > grid->dims.height) {\n");
     fprintf(out, "        return false;\n");
     fprintf(out, "    }\n");
     fprintf(out, "\n");
@@ -189,8 +190,8 @@ auto writeFunctionGeneric(FILE *out, StrSlice out_fn, Dims dims, size_t num,
     for (size_t r = 0; r < dims.height; ++r) {
         for (size_t c = 0; c < dims.width; ++c) {
             Location loc_adj = LAdj(dims, Location{r, c});
-            fprintf(out, "        grid[row + %zu][col + %zu],\n", loc_adj.row,
-                    loc_adj.col);
+            fprintf(out, "        &(*grid)[row + %zu][col + %zu],\n",
+                    loc_adj.row, loc_adj.col);
         }
     }
     fprintf(out, "    };\n");
@@ -236,6 +237,7 @@ auto writeFunction_270r(FILE *out, StrSlice out_fn, Dims dims) -> void {
 auto writeBody(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
     fprintf(out, "#pragma once\n");
     fprintf(out, "\n");
+    fprintf(out, "#include \"../arena.cc\"\n");
     fprintf(out, "#include \"../dirutils.cc\"\n");
     fprintf(out, "#include \"../grid.cc\"\n");
     fprintf(out, "#include \"../solver.cc\"\n");
@@ -260,7 +262,7 @@ auto writeBody(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
     writeFunction_270r(out, out_fn, dims);
 
     fprintf(out,
-            "auto %.*s(Grid grid, size_t row, size_t col, void *) -> bool {\n",
+            "auto %.*s(Grid *grid, size_t row, size_t col, void *) -> bool {\n",
             STR_ARGS(out_fn));
     fprintf(out, "    bool did_work_0n = %.*s_0n(grid, row, col);\n",
             STR_ARGS(out_fn));
@@ -286,11 +288,12 @@ auto writeBody(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
                  "did_work_270r;\n");
     fprintf(out, "}\n");
     fprintf(out, "\n");
-    fprintf(out, "auto register_%.*s(GridSolver &solver) -> void {\n",
+    fprintf(out,
+            "auto register_%.*s(Arena *arena, GridSolver *solver) -> void {\n",
             STR_ARGS(out_fn));
     fprintf(out,
-            "    solver.registerRule(GridSolver::Rule{%.*s, "
-            "STR_SLICE(\"%.*s\")});\n",
+            "    solver->registerRule(arena, makeRule(&%.*s, "
+            "STR_SLICE(\"%.*s\")));\n",
             STR_ARGS(out_fn), STR_ARGS(out_fn));
     fprintf(out, "}\n");
 }
@@ -307,20 +310,20 @@ int main(int argc, char const *argv[]) {
         EXIT(1);
     }
 
-    Arena arena{MEGABYTES(10)};
+    Arena arena = makeArena(MEGABYTES(10));
 
-    makeDirAndParentsIfNotExists(arena, OUT_DIR);
+    makeDirAndParentsIfNotExists(&arena, OUT_DIR);
 
     char const *in_name = argv[1];
-    FileArgs file_args = getFileArgs(arena, in_name);
+    FileArgs file_args = getFileArgs(&arena, in_name);
 
-    Op<StrSlice> contents_op = getContents(arena, in_name);
+    Op<StrSlice> contents_op = getContents(&arena, in_name);
     if (!contents_op.valid) {
         fprintf(stderr, "Failed to read pattern file %s\n", in_name);
         EXIT(1);
     }
 
-    Pattern pattern = readPattern(arena, contents_op.get());
+    Pattern pattern = readPattern(&arena, contents_op.get());
 
     char const *out_name = file_args.out_name;
     FILE *out = fopen(out_name, "w");
@@ -332,4 +335,6 @@ int main(int argc, char const *argv[]) {
     writeBody(out, file_args.out_root, pattern);
     fflush(out);
     fclose(out);
+
+    freeArena(&arena);
 }

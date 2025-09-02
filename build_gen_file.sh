@@ -9,6 +9,7 @@ FUNCTIONS=
 
 echo "#pragma once" >> $OUT_FILE
 echo "" >> $OUT_FILE
+echo '#include "../arena.cc"' >> $OUT_FILE
 echo '#include "../solver.cc"' >> $OUT_FILE
 
 for F in patterns/*.pat ; do
@@ -22,9 +23,9 @@ done
 
 if ! [[ -z "$FUNCTIONS" ]] ; then
     echo "" >> $OUT_FILE
-    echo "auto registerPatterns(GridSolver &solver) -> void {" >> $OUT_FILE
+    echo "auto registerPatterns(Arena *arena, GridSolver *solver) -> void {" >> $OUT_FILE
     for FUNC in $FUNCTIONS ; do
-        echo "    register_$FUNC(solver);" >> $OUT_FILE
+        echo "    register_$FUNC(arena, solver);" >> $OUT_FILE
     done
     echo "}" >> $OUT_FILE
 fi

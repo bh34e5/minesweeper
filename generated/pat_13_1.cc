@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../arena.cc"
 #include "../dirutils.cc"
 #include "../grid.cc"
 #include "../solver.cc"
@@ -8,53 +9,53 @@
 #include <sys/types.h>
 
 struct Pattern_pat_13_1 {
-    Cell &c_0_0;
-    Cell &c_0_1;
-    Cell &c_0_2;
-    Cell &c_1_0;
-    Cell &c_1_1;
-    Cell &c_1_2;
-    Cell &c_2_0;
-    Cell &c_2_1;
-    Cell &c_2_2;
+    Cell *c_0_0;
+    Cell *c_0_1;
+    Cell *c_0_2;
+    Cell *c_1_0;
+    Cell *c_1_1;
+    Cell *c_1_2;
+    Cell *c_2_0;
+    Cell *c_2_1;
+    Cell *c_2_2;
 };
 
-auto checkPattern_pat_13_1(Grid grid, size_t row, size_t col, Pattern_pat_13_1 pat) -> bool {
+auto checkPattern_pat_13_1(Grid *grid, size_t row, size_t col, Pattern_pat_13_1 pat) -> bool {
     // check pattern match
 
-    if ((pat.c_0_0.display_type != CellDisplayType::cdt_value || pat.c_0_0.type != CellType::ct_number) && (pat.c_0_0.display_type != CellDisplayType::cdt_flag)) {
+    if ((pat.c_0_0->display_type != CellDisplayType::cdt_value || pat.c_0_0->type != CellType::ct_number) && (pat.c_0_0->display_type != CellDisplayType::cdt_flag)) {
         return false;
     }
 
-    if ((pat.c_0_1.display_type != CellDisplayType::cdt_value || pat.c_0_1.type != CellType::ct_number) && (pat.c_0_1.display_type != CellDisplayType::cdt_flag)) {
+    if ((pat.c_0_1->display_type != CellDisplayType::cdt_value || pat.c_0_1->type != CellType::ct_number) && (pat.c_0_1->display_type != CellDisplayType::cdt_flag)) {
         return false;
     }
 
-    if ((pat.c_0_2.display_type != CellDisplayType::cdt_value || pat.c_0_2.type != CellType::ct_number) && (pat.c_0_2.display_type != CellDisplayType::cdt_flag)) {
+    if ((pat.c_0_2->display_type != CellDisplayType::cdt_value || pat.c_0_2->type != CellType::ct_number) && (pat.c_0_2->display_type != CellDisplayType::cdt_flag)) {
         return false;
     }
 
-    if (pat.c_1_0.display_type != CellDisplayType::cdt_value || pat.c_1_0.type != CellType::ct_number || pat.c_1_0.eff_number != 1) {
+    if (pat.c_1_0->display_type != CellDisplayType::cdt_value || pat.c_1_0->type != CellType::ct_number || pat.c_1_0->eff_number != 1) {
         return false;
     }
 
-    if (pat.c_1_1.display_type != CellDisplayType::cdt_value || pat.c_1_1.type != CellType::ct_number || pat.c_1_1.eff_number != 3) {
+    if (pat.c_1_1->display_type != CellDisplayType::cdt_value || pat.c_1_1->type != CellType::ct_number || pat.c_1_1->eff_number != 3) {
         return false;
     }
 
-    if (pat.c_1_2.display_type != CellDisplayType::cdt_hidden) {
+    if (pat.c_1_2->display_type != CellDisplayType::cdt_hidden) {
         return false;
     }
 
-    if (pat.c_2_0.display_type != CellDisplayType::cdt_hidden) {
+    if (pat.c_2_0->display_type != CellDisplayType::cdt_hidden) {
         return false;
     }
 
-    if (pat.c_2_1.display_type != CellDisplayType::cdt_hidden) {
+    if (pat.c_2_1->display_type != CellDisplayType::cdt_hidden) {
         return false;
     }
 
-    if (pat.c_2_2.display_type != CellDisplayType::cdt_hidden) {
+    if (pat.c_2_2->display_type != CellDisplayType::cdt_hidden) {
         return false;
     }
 
@@ -62,12 +63,12 @@ auto checkPattern_pat_13_1(Grid grid, size_t row, size_t col, Pattern_pat_13_1 p
 
     bool did_work = false;
 
-    if (pat.c_1_2.display_type == CellDisplayType::cdt_hidden || pat.c_1_2.display_type == CellDisplayType::cdt_maybe_flag) {
+    if (pat.c_1_2->display_type == CellDisplayType::cdt_hidden || pat.c_1_2->display_type == CellDisplayType::cdt_maybe_flag) {
         flagCell(grid, pat.c_1_2);
         did_work = true;
     }
 
-    if (pat.c_2_2.display_type == CellDisplayType::cdt_hidden || pat.c_2_2.display_type == CellDisplayType::cdt_maybe_flag) {
+    if (pat.c_2_2->display_type == CellDisplayType::cdt_hidden || pat.c_2_2->display_type == CellDisplayType::cdt_maybe_flag) {
         flagCell(grid, pat.c_2_2);
         did_work = true;
     }
@@ -75,215 +76,215 @@ auto checkPattern_pat_13_1(Grid grid, size_t row, size_t col, Pattern_pat_13_1 p
     return did_work;
 }
 
-auto pat_13_1_0n(Grid grid, size_t row, size_t col) -> bool {
+auto pat_13_1_0n(Grid *grid, size_t row, size_t col) -> bool {
     size_t pat_width = 3;
     size_t pat_height = 3;
 
-    if ((col + pat_width) > grid.dims.width) {
+    if ((col + pat_width) > grid->dims.width) {
         return false;
     }
-    if ((row + pat_height) > grid.dims.height) {
+    if ((row + pat_height) > grid->dims.height) {
         return false;
     }
 
     Pattern_pat_13_1 pat{
-        grid[row + 0][col + 0],
-        grid[row + 0][col + 1],
-        grid[row + 0][col + 2],
-        grid[row + 1][col + 0],
-        grid[row + 1][col + 1],
-        grid[row + 1][col + 2],
-        grid[row + 2][col + 0],
-        grid[row + 2][col + 1],
-        grid[row + 2][col + 2],
+        &(*grid)[row + 0][col + 0],
+        &(*grid)[row + 0][col + 1],
+        &(*grid)[row + 0][col + 2],
+        &(*grid)[row + 1][col + 0],
+        &(*grid)[row + 1][col + 1],
+        &(*grid)[row + 1][col + 2],
+        &(*grid)[row + 2][col + 0],
+        &(*grid)[row + 2][col + 1],
+        &(*grid)[row + 2][col + 2],
     };
 
     return checkPattern_pat_13_1(grid, row, col, pat);
 };
 
-auto pat_13_1_90n(Grid grid, size_t row, size_t col) -> bool {
+auto pat_13_1_90n(Grid *grid, size_t row, size_t col) -> bool {
     size_t pat_width = 3;
     size_t pat_height = 3;
 
-    if ((col + pat_width) > grid.dims.width) {
+    if ((col + pat_width) > grid->dims.width) {
         return false;
     }
-    if ((row + pat_height) > grid.dims.height) {
+    if ((row + pat_height) > grid->dims.height) {
         return false;
     }
 
     Pattern_pat_13_1 pat{
-        grid[row + 0][col + 2],
-        grid[row + 1][col + 2],
-        grid[row + 2][col + 2],
-        grid[row + 0][col + 1],
-        grid[row + 1][col + 1],
-        grid[row + 2][col + 1],
-        grid[row + 0][col + 0],
-        grid[row + 1][col + 0],
-        grid[row + 2][col + 0],
+        &(*grid)[row + 0][col + 2],
+        &(*grid)[row + 1][col + 2],
+        &(*grid)[row + 2][col + 2],
+        &(*grid)[row + 0][col + 1],
+        &(*grid)[row + 1][col + 1],
+        &(*grid)[row + 2][col + 1],
+        &(*grid)[row + 0][col + 0],
+        &(*grid)[row + 1][col + 0],
+        &(*grid)[row + 2][col + 0],
     };
 
     return checkPattern_pat_13_1(grid, row, col, pat);
 };
 
-auto pat_13_1_180n(Grid grid, size_t row, size_t col) -> bool {
+auto pat_13_1_180n(Grid *grid, size_t row, size_t col) -> bool {
     size_t pat_width = 3;
     size_t pat_height = 3;
 
-    if ((col + pat_width) > grid.dims.width) {
+    if ((col + pat_width) > grid->dims.width) {
         return false;
     }
-    if ((row + pat_height) > grid.dims.height) {
+    if ((row + pat_height) > grid->dims.height) {
         return false;
     }
 
     Pattern_pat_13_1 pat{
-        grid[row + 2][col + 2],
-        grid[row + 2][col + 1],
-        grid[row + 2][col + 0],
-        grid[row + 1][col + 2],
-        grid[row + 1][col + 1],
-        grid[row + 1][col + 0],
-        grid[row + 0][col + 2],
-        grid[row + 0][col + 1],
-        grid[row + 0][col + 0],
+        &(*grid)[row + 2][col + 2],
+        &(*grid)[row + 2][col + 1],
+        &(*grid)[row + 2][col + 0],
+        &(*grid)[row + 1][col + 2],
+        &(*grid)[row + 1][col + 1],
+        &(*grid)[row + 1][col + 0],
+        &(*grid)[row + 0][col + 2],
+        &(*grid)[row + 0][col + 1],
+        &(*grid)[row + 0][col + 0],
     };
 
     return checkPattern_pat_13_1(grid, row, col, pat);
 };
 
-auto pat_13_1_270n(Grid grid, size_t row, size_t col) -> bool {
+auto pat_13_1_270n(Grid *grid, size_t row, size_t col) -> bool {
     size_t pat_width = 3;
     size_t pat_height = 3;
 
-    if ((col + pat_width) > grid.dims.width) {
+    if ((col + pat_width) > grid->dims.width) {
         return false;
     }
-    if ((row + pat_height) > grid.dims.height) {
+    if ((row + pat_height) > grid->dims.height) {
         return false;
     }
 
     Pattern_pat_13_1 pat{
-        grid[row + 2][col + 0],
-        grid[row + 1][col + 0],
-        grid[row + 0][col + 0],
-        grid[row + 2][col + 1],
-        grid[row + 1][col + 1],
-        grid[row + 0][col + 1],
-        grid[row + 2][col + 2],
-        grid[row + 1][col + 2],
-        grid[row + 0][col + 2],
+        &(*grid)[row + 2][col + 0],
+        &(*grid)[row + 1][col + 0],
+        &(*grid)[row + 0][col + 0],
+        &(*grid)[row + 2][col + 1],
+        &(*grid)[row + 1][col + 1],
+        &(*grid)[row + 0][col + 1],
+        &(*grid)[row + 2][col + 2],
+        &(*grid)[row + 1][col + 2],
+        &(*grid)[row + 0][col + 2],
     };
 
     return checkPattern_pat_13_1(grid, row, col, pat);
 };
 
-auto pat_13_1_0r(Grid grid, size_t row, size_t col) -> bool {
+auto pat_13_1_0r(Grid *grid, size_t row, size_t col) -> bool {
     size_t pat_width = 3;
     size_t pat_height = 3;
 
-    if ((col + pat_width) > grid.dims.width) {
+    if ((col + pat_width) > grid->dims.width) {
         return false;
     }
-    if ((row + pat_height) > grid.dims.height) {
+    if ((row + pat_height) > grid->dims.height) {
         return false;
     }
 
     Pattern_pat_13_1 pat{
-        grid[row + 0][col + 2],
-        grid[row + 0][col + 1],
-        grid[row + 0][col + 0],
-        grid[row + 1][col + 2],
-        grid[row + 1][col + 1],
-        grid[row + 1][col + 0],
-        grid[row + 2][col + 2],
-        grid[row + 2][col + 1],
-        grid[row + 2][col + 0],
+        &(*grid)[row + 0][col + 2],
+        &(*grid)[row + 0][col + 1],
+        &(*grid)[row + 0][col + 0],
+        &(*grid)[row + 1][col + 2],
+        &(*grid)[row + 1][col + 1],
+        &(*grid)[row + 1][col + 0],
+        &(*grid)[row + 2][col + 2],
+        &(*grid)[row + 2][col + 1],
+        &(*grid)[row + 2][col + 0],
     };
 
     return checkPattern_pat_13_1(grid, row, col, pat);
 };
 
-auto pat_13_1_90r(Grid grid, size_t row, size_t col) -> bool {
+auto pat_13_1_90r(Grid *grid, size_t row, size_t col) -> bool {
     size_t pat_width = 3;
     size_t pat_height = 3;
 
-    if ((col + pat_width) > grid.dims.width) {
+    if ((col + pat_width) > grid->dims.width) {
         return false;
     }
-    if ((row + pat_height) > grid.dims.height) {
+    if ((row + pat_height) > grid->dims.height) {
         return false;
     }
 
     Pattern_pat_13_1 pat{
-        grid[row + 0][col + 0],
-        grid[row + 1][col + 0],
-        grid[row + 2][col + 0],
-        grid[row + 0][col + 1],
-        grid[row + 1][col + 1],
-        grid[row + 2][col + 1],
-        grid[row + 0][col + 2],
-        grid[row + 1][col + 2],
-        grid[row + 2][col + 2],
+        &(*grid)[row + 0][col + 0],
+        &(*grid)[row + 1][col + 0],
+        &(*grid)[row + 2][col + 0],
+        &(*grid)[row + 0][col + 1],
+        &(*grid)[row + 1][col + 1],
+        &(*grid)[row + 2][col + 1],
+        &(*grid)[row + 0][col + 2],
+        &(*grid)[row + 1][col + 2],
+        &(*grid)[row + 2][col + 2],
     };
 
     return checkPattern_pat_13_1(grid, row, col, pat);
 };
 
-auto pat_13_1_180r(Grid grid, size_t row, size_t col) -> bool {
+auto pat_13_1_180r(Grid *grid, size_t row, size_t col) -> bool {
     size_t pat_width = 3;
     size_t pat_height = 3;
 
-    if ((col + pat_width) > grid.dims.width) {
+    if ((col + pat_width) > grid->dims.width) {
         return false;
     }
-    if ((row + pat_height) > grid.dims.height) {
+    if ((row + pat_height) > grid->dims.height) {
         return false;
     }
 
     Pattern_pat_13_1 pat{
-        grid[row + 2][col + 0],
-        grid[row + 2][col + 1],
-        grid[row + 2][col + 2],
-        grid[row + 1][col + 0],
-        grid[row + 1][col + 1],
-        grid[row + 1][col + 2],
-        grid[row + 0][col + 0],
-        grid[row + 0][col + 1],
-        grid[row + 0][col + 2],
+        &(*grid)[row + 2][col + 0],
+        &(*grid)[row + 2][col + 1],
+        &(*grid)[row + 2][col + 2],
+        &(*grid)[row + 1][col + 0],
+        &(*grid)[row + 1][col + 1],
+        &(*grid)[row + 1][col + 2],
+        &(*grid)[row + 0][col + 0],
+        &(*grid)[row + 0][col + 1],
+        &(*grid)[row + 0][col + 2],
     };
 
     return checkPattern_pat_13_1(grid, row, col, pat);
 };
 
-auto pat_13_1_270r(Grid grid, size_t row, size_t col) -> bool {
+auto pat_13_1_270r(Grid *grid, size_t row, size_t col) -> bool {
     size_t pat_width = 3;
     size_t pat_height = 3;
 
-    if ((col + pat_width) > grid.dims.width) {
+    if ((col + pat_width) > grid->dims.width) {
         return false;
     }
-    if ((row + pat_height) > grid.dims.height) {
+    if ((row + pat_height) > grid->dims.height) {
         return false;
     }
 
     Pattern_pat_13_1 pat{
-        grid[row + 2][col + 2],
-        grid[row + 1][col + 2],
-        grid[row + 0][col + 2],
-        grid[row + 2][col + 1],
-        grid[row + 1][col + 1],
-        grid[row + 0][col + 1],
-        grid[row + 2][col + 0],
-        grid[row + 1][col + 0],
-        grid[row + 0][col + 0],
+        &(*grid)[row + 2][col + 2],
+        &(*grid)[row + 1][col + 2],
+        &(*grid)[row + 0][col + 2],
+        &(*grid)[row + 2][col + 1],
+        &(*grid)[row + 1][col + 1],
+        &(*grid)[row + 0][col + 1],
+        &(*grid)[row + 2][col + 0],
+        &(*grid)[row + 1][col + 0],
+        &(*grid)[row + 0][col + 0],
     };
 
     return checkPattern_pat_13_1(grid, row, col, pat);
 };
 
-auto pat_13_1(Grid grid, size_t row, size_t col, void *) -> bool {
+auto pat_13_1(Grid *grid, size_t row, size_t col, void *) -> bool {
     bool did_work_0n = pat_13_1_0n(grid, row, col);
     bool did_work_90n = pat_13_1_90n(grid, row, col);
     bool did_work_180n = pat_13_1_180n(grid, row, col);
@@ -298,6 +299,6 @@ auto pat_13_1(Grid grid, size_t row, size_t col, void *) -> bool {
            did_work_0r || did_work_180r || did_work_90r || did_work_270r;
 }
 
-auto register_pat_13_1(GridSolver &solver) -> void {
-    solver.registerRule(GridSolver::Rule{pat_13_1, STR_SLICE("pat_13_1")});
+auto register_pat_13_1(Arena *arena, GridSolver *solver) -> void {
+    solver->registerRule(arena, makeRule(&pat_13_1, STR_SLICE("pat_13_1")));
 }

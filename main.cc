@@ -8,6 +8,7 @@
 #include "graphics/utils.cc"
 #include "graphics/window.cc"
 #include "grid.cc"
+#include "linkedlist.cc"
 #include "one_of_aware.cc"
 #include "op.cc"
 #include "slice.cc"
@@ -22,12 +23,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <utility>
 
 #define LEN(arr) (sizeof(arr) / sizeof(*arr))
 
-auto flag_remaining_cells(Grid grid, size_t row, size_t col, void *) -> bool {
-    Cell cur = grid[row][col];
+auto flag_remaining_cells(Grid *grid, size_t row, size_t col, void *) -> bool {
+    Cell cur = (*grid)[row][col];
     if (cur.display_type != CellDisplayType::cdt_value ||
         cur.type != CellType::ct_number) {
         return false;
@@ -40,10 +40,10 @@ auto flag_remaining_cells(Grid grid, size_t row, size_t col, void *) -> bool {
     size_t hidden_count = 0;
 
     auto neighbor_op = Op<Grid::Neighbor>::empty();
-    auto neighbor_it = grid.neighborIterator(row, col);
+    auto neighbor_it = grid->neighborIterator(row, col);
     while ((neighbor_op = neighbor_it.next()).valid) {
-        Cell cell = neighbor_op.get().cell;
-        if (cell.display_type == CellDisplayType::cdt_hidden) {
+        Cell *cell = neighbor_op.get().cell;
+        if (cell->display_type == CellDisplayType::cdt_hidden) {
             ++hidden_count;
         }
     }
@@ -53,11 +53,11 @@ auto flag_remaining_cells(Grid grid, size_t row, size_t col, void *) -> bool {
         bool did_work = false;
 
         auto neighbor_op = Op<Grid::Neighbor>::empty();
-        auto neighbor_it = grid.neighborIterator(row, col);
+        auto neighbor_it = grid->neighborIterator(row, col);
         while ((neighbor_op = neighbor_it.next()).valid) {
             Grid::Neighbor neighbor = neighbor_op.get();
-            Cell cell = neighbor.cell;
-            if (cell.display_type == CellDisplayType::cdt_hidden) {
+            Cell *cell = neighbor.cell;
+            if (cell->display_type == CellDisplayType::cdt_hidden) {
                 flagCell(grid, neighbor.loc);
                 did_work = true;
             }
@@ -68,8 +68,8 @@ auto flag_remaining_cells(Grid grid, size_t row, size_t col, void *) -> bool {
     return false;
 };
 
-auto show_hidden_cells(Grid grid, size_t row, size_t col, void *) -> bool {
-    Cell cur = grid[row][col];
+auto show_hidden_cells(Grid *grid, size_t row, size_t col, void *) -> bool {
+    Cell cur = (*grid)[row][col];
     if (cur.display_type != CellDisplayType::cdt_value ||
         cur.type != CellType::ct_number) {
         return false;
@@ -86,11 +86,11 @@ auto show_hidden_cells(Grid grid, size_t row, size_t col, void *) -> bool {
         bool did_work = false;
 
         auto neighbor_op = Op<Grid::Neighbor>::empty();
-        auto neighbor_it = grid.neighborIterator(row, col);
+        auto neighbor_it = grid->neighborIterator(row, col);
         while ((neighbor_op = neighbor_it.next()).valid) {
             Grid::Neighbor neighbor = neighbor_op.get();
-            Cell cell = neighbor.cell;
-            if (cell.display_type == CellDisplayType::cdt_hidden) {
+            Cell *cell = neighbor.cell;
+            if (cell->display_type == CellDisplayType::cdt_hidden) {
                 uncoverSelfAndNeighbors(grid, neighbor.loc);
                 did_work = true;
             }
@@ -104,72 +104,37 @@ auto show_hidden_cells(Grid grid, size_t row, size_t col, void *) -> bool {
 auto testGrid() -> void {
     srand(0);
 
-    Arena arena{MEGABYTES(10)};
+    Arena grid_arena = makeArena(MEGABYTES(10));
 
-    Grid grid = generateGrid(arena, Dims{9, 18}, 34, Location{5, 5});
+    Grid grid = generateGrid(&grid_arena, Dims{9, 18}, 34, Location{5, 5});
+
+    GridSolver::Rule flag_remaining_rule =
+        makeRule(&flag_remaining_cells, STR_SLICE("flag_remaining_cells"));
+    GridSolver::Rule show_hidden_rule =
+        makeRule(&show_hidden_cells, STR_SLICE("show_hidden_cells"));
 
     GridSolver solver{};
-    solver.registerRule(GridSolver::Rule{flag_remaining_cells,
-                                         STR_SLICE("flag_remaining_cells")});
-    solver.registerRule(
-        GridSolver::Rule{show_hidden_cells, STR_SLICE("show_hidden_cells")});
-    registerPatterns(solver);
+    initSolver(&solver);
 
-    Arena one_aware_arena{MEGABYTES(10)};
-    OneOfAwareRule one_of_aware_rule{one_aware_arena};
-    one_of_aware_rule.registerRule(solver);
+    solver.registerRule(&grid_arena, flag_remaining_rule);
+    solver.registerRule(&grid_arena, show_hidden_rule);
+    registerPatterns(&grid_arena, &solver);
 
-    bool is_solvable = solver.solvable(grid);
+    OneOfAwareRule one_of_aware_rule = makeOneOfAware(MEGABYTES(10));
+    one_of_aware_rule.registerRule(&grid_arena, &solver);
+
+    bool is_solvable = solver.solvable(&grid);
 
     printGrid(grid);
     printf("The grid %s solvable\n", is_solvable ? "is" : "is not");
+
+    deleteOneOfAware(&one_of_aware_rule);
+    freeArena(&grid_arena);
 }
 
 void handle_error(int error, char const *description) {
     fprintf(stderr, "GLFW Error (%d)): %s\n", error, description);
 }
-
-template <typename T> struct LinkedList {
-    T val;
-    LinkedList *next;
-    LinkedList *prev;
-
-    LinkedList(T val) : val(val), next(nullptr), prev(nullptr) {}
-
-    template <typename... Args>
-    LinkedList(Args &&...args)
-        : val{std::forward<Args>(args)...}, next(nullptr), prev(nullptr) {}
-
-    static auto initSentinel(LinkedList &ll) -> void {
-        ll.next = &ll;
-        ll.prev = &ll;
-    }
-
-    static auto isEmpty(LinkedList &ll) -> bool { return ll.next == &ll; }
-
-    auto enqueue(LinkedList *ll) -> void {
-        ll->prev = this->prev;
-        ll->next = this;
-
-        ll->prev->next = ll;
-        ll->next->prev = ll;
-    }
-
-    auto dequeue() -> LinkedList * {
-        if (this->next == this) {
-            return nullptr;
-        }
-
-        LinkedList *ll = this->next;
-        ll->prev->next = ll->next;
-        ll->next->prev = ll->prev;
-
-        ll->prev = nullptr;
-        ll->next = nullptr;
-
-        return ll;
-    }
-};
 
 struct HBox {
     struct LocIterator {
@@ -198,15 +163,10 @@ struct HBox {
     Dims total_dims;
     LinkedList<Dims> items_sentinel;
 
-    HBox() : HBox(0) {}
-    HBox(size_t gap) : gap(gap), total_dims{}, items_sentinel{} {
-        LinkedList<Dims>::initSentinel(this->items_sentinel);
-    }
+    auto pushItem(Arena *arena, Dims dims) -> void {
+        LinkedList<Dims> *element = arena->pushT<LinkedList<Dims>>({dims});
 
-    auto pushItem(Arena &arena, Dims dims) -> void {
-        LinkedList<Dims> *element = arena.pushT<LinkedList<Dims>>({dims});
-
-        if (!LinkedList<Dims>::isEmpty(this->items_sentinel)) {
+        if (!LinkedList<Dims>::isEmpty(&this->items_sentinel)) {
             this->total_dims.width += this->gap;
         }
         this->total_dims.width += dims.width;
@@ -223,6 +183,11 @@ struct HBox {
                            base, this->gap, this->total_dims.height};
     }
 };
+
+auto initHBox(HBox *hbox, size_t gap = 0) -> void {
+    *hbox = HBox{gap};
+    LinkedList<Dims>::initSentinel(&hbox->items_sentinel);
+}
 
 struct VBox {
     struct LocIterator {
@@ -251,15 +216,10 @@ struct VBox {
     Dims total_dims;
     LinkedList<Dims> items_sentinel;
 
-    VBox() : VBox(0) {}
-    VBox(size_t gap) : gap(gap), total_dims{}, items_sentinel{} {
-        LinkedList<Dims>::initSentinel(this->items_sentinel);
-    }
+    auto pushItem(Arena *arena, Dims dims) -> void {
+        LinkedList<Dims> *element = arena->pushT<LinkedList<Dims>>({dims});
 
-    auto pushItem(Arena &arena, Dims dims) -> void {
-        LinkedList<Dims> *element = arena.pushT<LinkedList<Dims>>({dims});
-
-        if (!LinkedList<Dims>::isEmpty(this->items_sentinel)) {
+        if (!LinkedList<Dims>::isEmpty(&this->items_sentinel)) {
             this->total_dims.height += this->gap;
         }
         this->total_dims.height += dims.height;
@@ -276,6 +236,11 @@ struct VBox {
                            base, this->gap, this->total_dims.width};
     }
 };
+
+auto initVBox(VBox *vbox, size_t gap = 0) -> void {
+    *vbox = VBox{gap};
+    LinkedList<Dims>::initSentinel(&vbox->items_sentinel);
+}
 
 struct Context {
     typedef Window<Context> ThisWindow;
@@ -318,31 +283,26 @@ struct Context {
         Location cell_loc;
         bool disabled;
 
-        Element(Type type)
-            : type(type), loc{}, dims{}, padding{}, text{}, color{}, cell_loc{},
-              disabled{} {}
-        Element(Type type, SLocation loc, Dims dims)
-            : type(type), loc(loc), dims(dims), padding{}, text{}, color{},
-              cell_loc{}, disabled{} {}
-        Element(Type type, SLocation loc, Dims dims, StrSlice text)
-            : type(type), loc(loc), dims(dims), padding{}, text(text), color{},
-              cell_loc{}, disabled{} {}
-        Element(Type type, SLocation loc, StrSlice text, Color color)
-            : type(type), loc(loc), dims{}, padding{}, text(text), color(color),
-              cell_loc{}, disabled{} {}
-        Element(Type type, SLocation loc, Dims dims, Location cell_loc)
-            : type(type), loc(loc), dims(dims), padding{}, text{}, color{},
-              cell_loc(cell_loc), disabled{} {}
-        Element(Type type, SLocation loc, bool disabled)
-            : type(type), loc(loc), dims{}, padding{}, text{}, color{},
-              cell_loc{}, disabled(disabled) {}
-        Element(Type type, SLocation loc, Dims dims, bool disabled)
-            : type(type), loc(loc), dims(dims), padding{}, text{}, color{},
-              cell_loc{}, disabled(disabled) {}
-        Element(Type type, SLocation loc, Dims dims, Dims padding,
-                StrSlice text, bool disabled)
-            : type(type), loc(loc), dims(dims), padding(padding), text(text),
-              color{}, cell_loc{}, disabled(disabled) {}
+        static auto makeRectElement(Type type, SLocation loc, Dims dims)
+            -> Element {
+            return Element{type, loc, dims, {}, {}, {}, {}, {}};
+        }
+
+        static auto makeTextElement(Type type, SLocation loc, StrSlice text,
+                                    Color color) -> Element {
+            return Element{type, loc, {}, {}, text, color, {}, {}};
+        }
+
+        static auto makeCellElement(Type type, SLocation loc, Dims dims,
+                                    Location cell_loc) -> Element {
+            return Element{type, loc, dims, {}, {}, {}, cell_loc, {}};
+        }
+
+        static auto makeButtonElement(Type type, SLocation loc, Dims dims,
+                                      Dims padding, StrSlice text,
+                                      bool disabled) -> Element {
+            return Element{type, loc, dims, padding, text, {}, {}, disabled};
+        }
 
         auto contains(SLocation loc) -> bool {
             if (loc.row < this->loc.row) {
@@ -369,7 +329,6 @@ struct Context {
     typedef LinkedList<Element> LLElement;
 
     Arena arena;
-    size_t mark;
 
     QuadProgram quad_program;
     BakedFont baked_font;
@@ -397,83 +356,53 @@ struct Context {
 
     Arena grid_arena;
     Grid grid;
-    GridSolver &solver;
-    Op<size_t> last_work_rule;
-    Op<bool> last_step_success;
+    GridSolver solver;
+
+    bool did_step;
+    size_t last_work_rule;
+    bool last_step_success;
 
     static constexpr Color const TEXT_COLOR = Color::grayscale(50);
 
-    Context(ThisWindow &window, GridSolver &solver)
-        : arena{MEGABYTES(4)}, mark(this->arena.len),
-          quad_program(window.quadProgram()),
-          baked_font{
-              window.bakedFont(this->arena, "./fonts/Roboto-Black.ttf", 15)},
-          button{}, disabled_button{}, focus_button{}, active_button{},
-          background{}, modal_background{}, mouse_down(false), down_mouse_pos{},
-          right_mouse_down(false), down_right_mouse_pos{},
-          ev_sentinel{Event::et_empty}, el_sentinel{Element::Type::et_empty},
-          preview_grid(false), width_input(10), height_input(10),
-          mine_input(15), grid_arena{KILOBYTES(4)}, grid{}, solver{solver},
-          last_work_rule{Op<size_t>::empty()},
-          last_step_success{Op<bool>::empty()} {
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-        glFrontFace(GL_CCW);
-        glClearColor(0.0, 0.0, 0.0, 0.0);
-
-        this->button.grayscale(200, Dims{1, 1});
-        this->focus_button.grayscale(180, Dims{1, 1});
-        this->active_button.grayscale(160, Dims{1, 1});
-        this->disabled_button.grayscale(220, Dims{1, 1});
-
-        this->background.grayscale(120, Dims{1, 1});
-        this->modal_background.grayscale(0, 128, Dims{1, 1});
-
-        LLEvent::initSentinel(this->ev_sentinel);
-        LLElement::initSentinel(this->el_sentinel);
-    }
-
-    void framebufferSizeCallback(ThisWindow &window, int width, int height) {
+    void framebufferSizeCallback(ThisWindow *window, int width, int height) {
         assert(width >= 0 && "Invalid width");
         assert(height >= 0 && "Invalid height");
 
         glViewport(0, 0, width, height);
 
-        window.needs_rerender = true;
+        window->needs_rerender = true;
     }
 
-    void cursorPosCallback(ThisWindow &window, double, double) {
-        window.needs_repaint = true;
+    void cursorPosCallback(ThisWindow *window, double, double) {
+        window->needs_repaint = true;
     }
 
-    void mouseButtonCallback(ThisWindow &window, int button, int action, int) {
+    void mouseButtonCallback(ThisWindow *window, int button, int action, int) {
         if (button == GLFW_MOUSE_BUTTON_LEFT) {
             if (action == GLFW_PRESS) {
-                LLEvent *ev =
-                    this->arena.pushT<LLEvent>(Event{Event::et_mouse_press});
+                LLEvent *ev = this->arena.pushT(LLEvent{Event::et_mouse_press});
 
                 this->mouse_down = true;
-                this->down_mouse_pos = window.getClampedMouseLocation();
+                this->down_mouse_pos = window->getClampedMouseLocation();
                 this->ev_sentinel.enqueue(ev);
             } else {
                 LLEvent *ev =
-                    this->arena.pushT<LLEvent>(Event{Event::et_mouse_release});
+                    this->arena.pushT(LLEvent{Event::et_mouse_release});
 
                 this->mouse_down = false;
                 this->ev_sentinel.enqueue(ev);
             }
         } else if (button == GLFW_MOUSE_BUTTON_RIGHT) {
             if (action == GLFW_PRESS) {
-                LLEvent *ev = this->arena.pushT<LLEvent>(
-                    Event{Event::et_right_mouse_press});
+                LLEvent *ev =
+                    this->arena.pushT(LLEvent{Event::et_right_mouse_press});
 
                 this->right_mouse_down = true;
-                this->down_right_mouse_pos = window.getClampedMouseLocation();
+                this->down_right_mouse_pos = window->getClampedMouseLocation();
                 this->ev_sentinel.enqueue(ev);
             } else {
-                LLEvent *ev = this->arena.pushT<LLEvent>(
-                    Event{Event::et_right_mouse_release});
+                LLEvent *ev =
+                    this->arena.pushT(LLEvent{Event::et_right_mouse_release});
 
                 this->right_mouse_down = false;
                 this->ev_sentinel.enqueue(ev);
@@ -481,8 +410,8 @@ struct Context {
         }
     }
 
-    auto buildScene(ThisWindow &window) -> void {
-        Dims window_dims = window.getDims();
+    auto buildScene(ThisWindow *window) -> void {
+        Dims window_dims = window->getDims();
         size_t w = window_dims.width;
         size_t h = window_dims.height;
 
@@ -510,8 +439,8 @@ struct Context {
         Dims solver_dims{(size_t)solver_width, render_dims.height};
         SRect solver_rect{solver_loc, solver_dims};
 
-        this->pushElement(
-            {Element::Type::et_background, render_loc, render_dims});
+        this->pushElement(Element::makeRectElement(Element::Type::et_background,
+                                                   render_loc, render_dims));
 
         if (this->grid.dims.area() > 0) {
             size_t cell_padding = 1;
@@ -554,8 +483,8 @@ struct Context {
                     } break;
                     }
 
-                    this->pushElement(
-                        {et, cell_loc, cell_dims, Location{r, c}});
+                    this->pushElement(Element::makeCellElement(
+                        et, cell_loc, cell_dims, Location{r, c}));
                 }
             }
 
@@ -564,8 +493,9 @@ struct Context {
             if (gridSolved(this->grid)) {
                 // Show You Win modal and Restart button
 
-                this->pushElement({Element::Type::et_modal_background,
-                                   render_loc, render_dims});
+                this->pushElement(
+                    Element::makeRectElement(Element::Type::et_modal_background,
+                                             render_loc, render_dims));
 
                 StrSlice you_win_slice = STR_SLICE("You Win!");
                 StrSlice restart_slice = STR_SLICE("Restart");
@@ -574,9 +504,11 @@ struct Context {
                 Dims button_dims =
                     this->getButtonDims(you_win_slice, {}, button_padding);
 
-                VBox box{10};
-                box.pushItem(this->arena, this->getTextDims(you_win_slice));
-                box.pushItem(this->arena, button_dims);
+                VBox box{};
+                initVBox(&box, 10);
+
+                box.pushItem(&this->arena, this->getTextDims(you_win_slice));
+                box.pushItem(&this->arena, button_dims);
                 SRect base_rect = centerIn(render_rect, box.total_dims);
 
                 Dims modal_dims{render_dims.width / 3, render_dims.height / 3};
@@ -589,13 +521,14 @@ struct Context {
 
                 SLocation modal_loc = centerIn(render_rect, modal_dims).ul;
 
-                this->pushElement(
-                    {Element::Type::et_background, modal_loc, modal_dims});
+                this->pushElement(Element::makeRectElement(
+                    Element::Type::et_background, modal_loc, modal_dims));
 
                 VBox::LocIterator vbox_it = box.itemsIterator(base_rect.ul);
 
-                this->pushElement({Element::Type::et_text, vbox_it.getNext().ul,
-                                   you_win_slice, TEXT_COLOR});
+                this->pushElement(Element::makeTextElement(
+                    Element::Type::et_text, vbox_it.getNext().ul, you_win_slice,
+                    TEXT_COLOR));
 
                 SRect button_rect = vbox_it.getNext();
                 this->pushButtonAt(Element::Type::et_restart_btn,
@@ -627,8 +560,9 @@ struct Context {
                     SLocation cell_loc{render_loc.row + r_pos,
                                        render_loc.col + c_pos};
 
-                    this->pushElement({Element::Type::et_empty_grid_cell,
-                                       cell_loc, cell_dims, Location{r, c}});
+                    this->pushElement(Element::makeCellElement(
+                        Element::Type::et_empty_grid_cell, cell_loc, cell_dims,
+                        Location{r, c}));
                 }
             }
 
@@ -651,21 +585,28 @@ struct Context {
         Dims rule_used_dims =
             this->getLineHeightTextDims(rule_used_slice, min_used_dims);
 
-        VBox name_box{5};
-        for (auto &rule : this->solver.rules.slice()) {
-            Dims text_dims = this->getTextDims(rule.name);
-            Dims box_dims{text_dims.width + rule_used_dims.width,
-                          text_dims.height < rule_used_dims.height
-                              ? rule_used_dims.height
-                              : text_dims.height};
-            name_box.pushItem(this->arena, box_dims);
+        VBox name_box{};
+        initVBox(&name_box, 5);
+
+        VBox footer_contents{};
+        initVBox(&footer_contents, 20);
+
+        {
+            LinkedList<GridSolver::Rule> *ll = &this->solver.rule_sentinel;
+            while ((ll = ll->next) != &this->solver.rule_sentinel) {
+                Dims text_dims = this->getTextDims(ll->val.name);
+                Dims box_dims{text_dims.width + rule_used_dims.width,
+                              text_dims.height < rule_used_dims.height
+                                  ? rule_used_dims.height
+                                  : text_dims.height};
+                name_box.pushItem(&this->arena, box_dims);
+            }
         }
 
-        VBox footer_contents{20};
-        footer_contents.pushItem(this->arena,
+        footer_contents.pushItem(&this->arena,
                                  this->getButtonDims(btn_text, {}, padding));
-        footer_contents.pushItem(this->arena, name_box.total_dims);
-        footer_contents.pushItem(this->arena,
+        footer_contents.pushItem(&this->arena, name_box.total_dims);
+        footer_contents.pushItem(&this->arena,
                                  this->getTextDims(no_rule_applied_slice));
 
         SRect inner_rect = centerIn(footer_rect, footer_contents.total_dims);
@@ -683,27 +624,32 @@ struct Context {
 
         Color rule_color = Color::grayscale(80);
         VBox::LocIterator names_it = name_box.itemsIterator(names_rect.ul);
-        for (size_t rule_idx = 0; rule_idx < this->solver.rules.len;
+
+        LinkedList<GridSolver::Rule> *ll = &this->solver.rule_sentinel;
+        for (size_t rule_idx = 0; rule_idx < this->solver.rule_count;
              ++rule_idx) {
+            ll = ll->next;
+
             SLocation name_box_loc = names_it.getNext().ul;
             SLocation name_loc{name_box_loc.row,
                                name_box_loc.col +
                                    (ssize_t)rule_used_dims.width};
 
-            if (this->last_work_rule.valid &&
-                this->last_work_rule.get() == rule_idx) {
-                this->pushElement({Element::et_text, name_box_loc,
-                                   rule_used_slice, rule_color});
+            if (this->did_step && this->last_work_rule == rule_idx) {
+                this->pushElement(
+                    Element::makeTextElement(Element::et_text, name_box_loc,
+                                             rule_used_slice, rule_color));
             }
 
-            StrSlice rule_name = this->solver.rules.at(rule_idx).name;
-            this->pushElement(
-                {Element::Type::et_text, name_loc, rule_name, rule_color});
+            StrSlice rule_name = ll->val.name;
+            this->pushElement(Element::makeTextElement(
+                Element::Type::et_text, name_loc, rule_name, rule_color));
         }
 
-        if (this->last_step_success.valid && !this->last_step_success.get()) {
-            this->pushElement({Element::Type::et_text, no_rule_loc,
-                               no_rule_applied_slice, Color{140, 30, 30}});
+        if (this->did_step && !this->last_step_success) {
+            this->pushElement(Element::makeTextElement(
+                Element::Type::et_text, no_rule_loc, no_rule_applied_slice,
+                Color{140, 30, 30}));
         }
 
         assert(!names_it.hasNext());
@@ -736,32 +682,40 @@ struct Context {
 
         Dims button_dims = this->getButtonDims(gen_slice, Dims{}, Dims{5, 5});
 
-        HBox width_box{5};
-        width_box.pushItem(
-            this->arena, this->getButtonDims(dec_slice, inc_dec_dims, Dims{}));
-        width_box.pushItem(
-            this->arena, this->getButtonDims(inc_slice, inc_dec_dims, Dims{}));
-        width_box.pushItem(this->arena, this->getTextDims(width_slice));
+        HBox width_box{};
+        initHBox(&width_box, 5);
 
-        HBox height_box{5};
-        height_box.pushItem(
-            this->arena, this->getButtonDims(dec_slice, inc_dec_dims, Dims{}));
-        height_box.pushItem(
-            this->arena, this->getButtonDims(inc_slice, inc_dec_dims, Dims{}));
-        height_box.pushItem(this->arena, this->getTextDims(height_slice));
+        HBox height_box{};
+        initHBox(&height_box, 5);
 
-        HBox mine_box{5};
-        mine_box.pushItem(this->arena,
+        HBox mine_box{};
+        initHBox(&mine_box, 5);
+
+        VBox vbox{};
+        initVBox(&vbox, 5);
+
+        width_box.pushItem(
+            &this->arena, this->getButtonDims(dec_slice, inc_dec_dims, Dims{}));
+        width_box.pushItem(
+            &this->arena, this->getButtonDims(inc_slice, inc_dec_dims, Dims{}));
+        width_box.pushItem(&this->arena, this->getTextDims(width_slice));
+
+        height_box.pushItem(
+            &this->arena, this->getButtonDims(dec_slice, inc_dec_dims, Dims{}));
+        height_box.pushItem(
+            &this->arena, this->getButtonDims(inc_slice, inc_dec_dims, Dims{}));
+        height_box.pushItem(&this->arena, this->getTextDims(height_slice));
+
+        mine_box.pushItem(&this->arena,
                           this->getButtonDims(dec_slice, inc_dec_dims, Dims{}));
-        mine_box.pushItem(this->arena,
+        mine_box.pushItem(&this->arena,
                           this->getButtonDims(inc_slice, inc_dec_dims, Dims{}));
-        mine_box.pushItem(this->arena, this->getTextDims(mine_slice));
+        mine_box.pushItem(&this->arena, this->getTextDims(mine_slice));
 
-        VBox vbox{5};
-        vbox.pushItem(this->arena, width_box.total_dims);
-        vbox.pushItem(this->arena, height_box.total_dims);
-        vbox.pushItem(this->arena, mine_box.total_dims);
-        vbox.pushItem(this->arena, button_dims);
+        vbox.pushItem(&this->arena, width_box.total_dims);
+        vbox.pushItem(&this->arena, height_box.total_dims);
+        vbox.pushItem(&this->arena, mine_box.total_dims);
+        vbox.pushItem(&this->arena, button_dims);
 
         SRect box_rect = centerIn(render_rect, vbox.total_dims);
 
@@ -783,8 +737,9 @@ struct Context {
         this->pushButtonAt(Element::Type::et_width_inc,
                            width_box_it.getNext().ul, inc_slice, inc_dec_dims);
 
-        this->pushElement({Element::Type::et_text, width_box_it.getNext().ul,
-                           width_slice, TEXT_COLOR});
+        this->pushElement(Element::makeTextElement(Element::Type::et_text,
+                                                   width_box_it.getNext().ul,
+                                                   width_slice, TEXT_COLOR));
 
         assert(!width_box_it.hasNext());
 
@@ -795,8 +750,9 @@ struct Context {
         this->pushButtonAt(Element::Type::et_height_inc,
                            height_box_it.getNext().ul, inc_slice, inc_dec_dims);
 
-        this->pushElement({Element::Type::et_text, height_box_it.getNext().ul,
-                           height_slice, TEXT_COLOR});
+        this->pushElement(Element::makeTextElement(Element::Type::et_text,
+                                                   height_box_it.getNext().ul,
+                                                   height_slice, TEXT_COLOR));
 
         assert(!height_box_it.hasNext());
 
@@ -807,8 +763,9 @@ struct Context {
         this->pushButtonAt(Element::Type::et_mine_inc, mine_box_it.getNext().ul,
                            inc_slice, inc_dec_dims);
 
-        this->pushElement({Element::Type::et_text, mine_box_it.getNext().ul,
-                           mine_slice, TEXT_COLOR});
+        this->pushElement(Element::makeTextElement(Element::Type::et_text,
+                                                   mine_box_it.getNext().ul,
+                                                   mine_slice, TEXT_COLOR));
 
         assert(!mine_box_it.hasNext());
 
@@ -818,12 +775,12 @@ struct Context {
                            gen_slice, {}, Dims{5, 5});
     }
 
-    auto renderScene(ThisWindow &window) -> void {
+    auto renderScene(ThisWindow *window) -> void {
         LLElement *el = &this->el_sentinel;
 
         LLElement *active_element = nullptr;
         LLElement *focus_element = nullptr;
-        this->getInteractableElements(window, active_element, focus_element);
+        this->getInteractableElements(window, &active_element, &focus_element);
 
         while ((el = el->next) != &this->el_sentinel) {
             bool is_active = el == active_element;
@@ -833,28 +790,23 @@ struct Context {
             case Element::Type::et_empty:
                 break;
             case Element::Type::et_background: {
-                auto guard = this->quad_program.withTexture(this->background);
-                this->renderQuad(window, SRect{el->val.loc, el->val.dims});
+                this->renderQuad(window, SRect{el->val.loc, el->val.dims},
+                                 this->background);
             } break;
             case Element::Type::et_modal_background: {
-                auto guard =
-                    this->quad_program.withTexture(this->modal_background);
-                this->renderQuad(window, SRect{el->val.loc, el->val.dims});
+                this->renderQuad(window, SRect{el->val.loc, el->val.dims},
+                                 this->background);
             } break;
             case Element::Type::et_empty_grid_cell: {
-                Texture2D &texture =
+                Texture2D texture =
                     this->getButtonTexture(false, is_active, is_focus);
 
-                auto guard = this->quad_program.withTexture(texture);
-                this->renderQuad(window, SRect{el->val.loc, el->val.dims});
+                this->renderQuad(window, SRect{el->val.loc, el->val.dims},
+                                 texture);
             } break;
             case Element::Type::et_revealed_grid_cell: {
                 SRect render_rect{el->val.loc, el->val.dims};
-                {
-                    auto guard =
-                        this->quad_program.withTexture(this->background);
-                    this->renderQuad(window, render_rect);
-                }
+                this->renderQuad(window, render_rect, this->background);
 
                 // TODO(bhester): change font color based on the number?
                 this->baked_font.setColor(Color::grayscale(225));
@@ -933,11 +885,11 @@ struct Context {
         assert(0 && "Unreachable");
     }
 
-    auto getInteractableElements(ThisWindow &window, LLElement *&active_element,
-                                 LLElement *&focus_element) -> void {
+    auto getInteractableElements(ThisWindow *window, LLElement **active_element,
+                                 LLElement **focus_element) -> void {
         LLElement *el = &this->el_sentinel;
 
-        SLocation mouse_loc = window.getMouseLocation();
+        SLocation mouse_loc = window->getMouseLocation();
         SLocation down_loc = this->mouse_down ? this->down_mouse_pos
                                               : SLocation{LONG_MIN, LONG_MIN};
 
@@ -947,31 +899,31 @@ struct Context {
             }
 
             if (el->val.contains(mouse_loc)) {
-                if (focus_element == nullptr) {
-                    focus_element = el;
+                if (*focus_element == nullptr) {
+                    *focus_element = el;
                 }
             }
 
             if (el->val.contains(down_loc)) {
-                if (active_element == nullptr) {
-                    active_element = el;
+                if (*active_element == nullptr) {
+                    *active_element = el;
                 }
             }
         }
     }
 
-    auto render(ThisWindow &window) -> void {
-        this->arena.reset(this->mark);
-        LLEvent::initSentinel(this->ev_sentinel);
-        LLElement::initSentinel(this->el_sentinel);
+    auto render(ThisWindow *window) -> void {
+        this->arena.reset(0);
+        LLEvent::initSentinel(&this->ev_sentinel);
+        LLElement::initSentinel(&this->el_sentinel);
 
         buildScene(window);
         renderScene(window);
     }
 
-    auto paint(ThisWindow &window) -> void { renderScene(window); }
+    auto paint(ThisWindow *window) -> void { renderScene(window); }
 
-    auto processEvents(ThisWindow &window) -> void {
+    auto processEvents(ThisWindow *window) -> void {
         LLEvent *ev = nullptr;
         while ((ev = this->ev_sentinel.dequeue()) != nullptr) {
             switch (ev->val) {
@@ -981,7 +933,7 @@ struct Context {
             case Event::et_right_mouse_release: {
                 // FIXME(bhester): this may not be necessary in some cases... do
                 // I want to propagate active element status?
-                window.needs_repaint = true;
+                window->needs_repaint = true;
             } break;
             case Event::et_mouse_press: {
                 LLElement *el = &this->el_sentinel;
@@ -1003,12 +955,12 @@ struct Context {
                             keep_processing_elems = false;
 
                             // clean up solver
-                            this->solver.resetEpoch(this->grid);
+                            this->solver.resetEpoch(&this->grid);
 
                             this->grid_arena.reset(0);
                             this->grid = Grid{};
 
-                            window.needs_rerender = true;
+                            window->needs_rerender = true;
                         } break;
                         case Element::Type::et_empty_grid_cell: {
                             keep_processing_elems = false;
@@ -1018,18 +970,19 @@ struct Context {
 
                                 this->preview_grid = false;
                                 this->grid = generateGrid(
-                                    this->grid_arena,
+                                    &this->grid_arena,
                                     Dims{this->width_input, this->height_input},
                                     this->mine_input, el->val.cell_loc);
                             } else {
-                                uncoverSelfAndNeighbors(this->grid,
+                                uncoverSelfAndNeighbors(&this->grid,
                                                         el->val.cell_loc);
 
-                                this->last_work_rule = Op<size_t>::empty();
-                                this->last_step_success = Op<bool>::empty();
+                                this->did_step = false;
+                                this->last_work_rule = 0;
+                                this->last_step_success = false;
                             }
 
-                            window.needs_rerender = true;
+                            window->needs_rerender = true;
                         } break;
                         case Element::Type::et_generate_grid_btn: {
                             keep_processing_elems = false;
@@ -1037,7 +990,7 @@ struct Context {
                             printf("Previewing grid\n");
 
                             this->preview_grid = true;
-                            window.needs_rerender = true;
+                            window->needs_rerender = true;
                         } break;
                         case Element::Type::et_step_solver_btn: {
                             if (el->val.disabled) {
@@ -1046,26 +999,28 @@ struct Context {
 
                             printf("Stepping solver\n");
 
-                            bool did_work = this->solver.step(this->grid);
+                            bool did_work = this->solver.step(&this->grid);
                             if (did_work) {
                                 printf("Solver did work\n");
+                                this->did_step = true;
                                 this->last_work_rule =
                                     this->solver.state.last_work_rule;
                                 this->last_step_success = true;
                             } else {
                                 printf("Solver did not do work\n");
-                                this->last_work_rule = Op<size_t>::empty();
+                                this->did_step = true;
+                                this->last_work_rule = 0;
                                 this->last_step_success = false;
                             }
 
-                            window.needs_rerender = true;
+                            window->needs_rerender = true;
                         } break;
                         case Element::Type::et_width_inc: {
                             keep_processing_elems = false;
 
                             if (this->width_input < 99) {
                                 ++this->width_input;
-                                window.needs_rerender = true;
+                                window->needs_rerender = true;
                             }
                         } break;
                         case Element::Type::et_width_dec: {
@@ -1073,7 +1028,7 @@ struct Context {
 
                             if (this->width_input > 1) {
                                 --this->width_input;
-                                window.needs_rerender = true;
+                                window->needs_rerender = true;
                             }
                         } break;
                         case Element::Type::et_height_inc: {
@@ -1081,7 +1036,7 @@ struct Context {
 
                             if (this->height_input < 99) {
                                 ++this->height_input;
-                                window.needs_rerender = true;
+                                window->needs_rerender = true;
                             }
                         } break;
                         case Element::Type::et_height_dec: {
@@ -1089,7 +1044,7 @@ struct Context {
 
                             if (this->height_input > 1) {
                                 --this->height_input;
-                                window.needs_rerender = true;
+                                window->needs_rerender = true;
                             }
                         } break;
                         case Element::Type::et_mine_inc: {
@@ -1097,7 +1052,7 @@ struct Context {
 
                             if (this->mine_input < 99) {
                                 ++this->mine_input;
-                                window.needs_rerender = true;
+                                window->needs_rerender = true;
                             }
                         } break;
                         case Element::Type::et_mine_dec: {
@@ -1105,7 +1060,7 @@ struct Context {
 
                             if (this->mine_input > 1) {
                                 --this->mine_input;
-                                window.needs_rerender = true;
+                                window->needs_rerender = true;
                             }
                         } break;
                         }
@@ -1139,16 +1094,16 @@ struct Context {
                         case Element::Type::et_empty_grid_cell: {
                             keep_processing_elems = false;
 
-                            flagCell(this->grid, el->val.cell_loc);
+                            flagCell(&this->grid, el->val.cell_loc);
 
-                            window.needs_rerender = true;
+                            window->needs_rerender = true;
                         } break;
                         case Element::Type::et_flagged_grid_cell: {
                             keep_processing_elems = false;
 
-                            unflagCell(this->grid, el->val.cell_loc);
+                            unflagCell(&this->grid, el->val.cell_loc);
 
-                            window.needs_rerender = true;
+                            window->needs_rerender = true;
                         } break;
                         }
                     }
@@ -1164,7 +1119,8 @@ struct Context {
         Dims render_dims = this->getButtonDims(text, min_dims, padding);
         SRect rect{loc, render_dims};
 
-        pushElement({type, loc, render_dims, padding, text, disabled});
+        this->pushElement(Element::makeButtonElement(type, loc, render_dims,
+                                                     padding, text, disabled));
         return rect;
     }
 
@@ -1174,8 +1130,8 @@ struct Context {
         Dims render_dims = this->getButtonDims(text, min_dims, padding);
         SRect centered = centerIn(rect, render_dims);
 
-        pushElement(
-            {type, centered.ul, centered.dims, padding, text, disabled});
+        this->pushElement(Element::makeButtonElement(
+            type, centered.ul, centered.dims, padding, text, disabled));
         return centered;
     }
 
@@ -1204,12 +1160,11 @@ struct Context {
     }
 
     auto pushElement(Element el) -> void {
-        LLElement *ll = this->arena.pushT<LLElement>(el);
+        LLElement *ll = this->arena.pushT(LLElement{el});
         this->el_sentinel.enqueue(ll);
     }
 
-    auto getButtonTexture(bool disabled, bool active, bool focus)
-        -> Texture2D & {
+    auto getButtonTexture(bool disabled, bool active, bool focus) -> Texture2D {
         if (disabled) {
             return this->disabled_button;
         } else if (active) {
@@ -1221,7 +1176,7 @@ struct Context {
         }
     }
 
-    auto renderButton(ThisWindow &window, SRect rect, Dims padding,
+    auto renderButton(ThisWindow *window, SRect rect, Dims padding,
                       StrSlice text, bool disabled, bool active, bool focus)
         -> void {
         SRect render_rect = rect;
@@ -1229,11 +1184,8 @@ struct Context {
             render_rect.dims = this->baked_font.getTextDims(text);
         }
 
-        Texture2D &btn_texture =
-            this->getButtonTexture(disabled, active, focus);
-
-        auto guard = this->quad_program.withTexture(btn_texture);
-        this->renderQuad(window, render_rect);
+        Texture2D btn_texture = this->getButtonTexture(disabled, active, focus);
+        this->renderQuad(window, render_rect, btn_texture);
 
         SRect text_rect{
             SLocation{
@@ -1251,38 +1203,99 @@ struct Context {
         this->renderCenteredText(window, text_rect, text);
     }
 
-    auto renderQuad(ThisWindow &window, SRect rect) -> void {
-        window.renderQuad(this->quad_program, rect);
+    auto renderQuad(ThisWindow *window, SRect rect, Texture2D texture) -> void {
+        window->renderQuad(&this->quad_program, rect, texture);
     }
 
-    auto renderText(ThisWindow &window, SLocation loc, StrSlice text) -> void {
-        window.renderText(this->baked_font, loc, text);
+    auto renderText(ThisWindow *window, SLocation loc, StrSlice text) -> void {
+        window->renderText(&this->baked_font, loc, text);
     }
 
-    auto renderText(ThisWindow &window, SRect rect, StrSlice text) -> void {
-        window.renderText(this->baked_font, rect, text);
+    auto renderText(ThisWindow *window, SRect rect, StrSlice text) -> void {
+        window->renderText(&this->baked_font, rect, text);
     }
 
-    auto renderCenteredText(ThisWindow &window, SRect rect, StrSlice text)
+    auto renderCenteredText(ThisWindow *window, SRect rect, StrSlice text)
         -> void {
-        window.renderCenteredText(this->baked_font, rect, text);
+        window->renderCenteredText(&this->baked_font, rect, text);
     }
 };
+
+auto initContext(Arena *arena, Window<Context> *window, Context *ctx) -> void {
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glFrontFace(GL_CCW);
+    glClearColor(0.0, 0.0, 0.0, 0.0);
+
+    GridSolver::Rule flag_remaining_rule =
+        makeRule(&flag_remaining_cells, STR_SLICE("flag_remaining_cells"));
+    GridSolver::Rule show_hidden_rule =
+        makeRule(&show_hidden_cells, STR_SLICE("show_hidden_cells"));
+
+    initSolver(&ctx->solver);
+    ctx->solver.registerRule(arena, flag_remaining_rule);
+    ctx->solver.registerRule(arena, show_hidden_rule);
+    registerPatterns(arena, &ctx->solver);
+
+    ctx->grid_arena = arena->subarena(KILOBYTES(4)); // pull out 4K
+    ctx->arena = arena->subarena(0);                 // and use the rest here
+
+    ctx->quad_program = window->makeBaseQuadProgram(&ctx->arena);
+    ctx->baked_font =
+        window->makeBaseBakedFont(&ctx->arena, "./fonts/Roboto-Black.ttf", 15);
+
+    ctx->button = makeTexture();
+    ctx->disabled_button = makeTexture();
+    ctx->focus_button = makeTexture();
+    ctx->active_button = makeTexture();
+    ctx->background = makeTexture();
+    ctx->modal_background = makeTexture();
+
+    ctx->width_input = 10;
+    ctx->height_input = 10;
+    ctx->mine_input = 15;
+
+    ctx->did_step = false;
+    ctx->last_work_rule = 0;
+    ctx->last_step_success = false;
+
+    // initialize texture values
+
+    ctx->button.grayscale(&ctx->arena, 200, Dims{1, 1});
+    ctx->focus_button.grayscale(&ctx->arena, 180, Dims{1, 1});
+    ctx->active_button.grayscale(&ctx->arena, 160, Dims{1, 1});
+    ctx->disabled_button.grayscale(&ctx->arena, 220, Dims{1, 1});
+    ctx->background.grayscale(&ctx->arena, 120, Dims{1, 1});
+    ctx->modal_background.grayscale(&ctx->arena, 0, 128, Dims{1, 1});
+
+    LinkedList<Context::Event>::initSentinel(&ctx->ev_sentinel);
+    LinkedList<Context::Element>::initSentinel(&ctx->el_sentinel);
+}
+
+auto deinitContext(Context *ctx) -> void {
+    deleteBakedFont(&ctx->baked_font);
+    deleteQuadProgram(&ctx->quad_program);
+
+    deleteTexture(&ctx->modal_background);
+    deleteTexture(&ctx->background);
+    deleteTexture(&ctx->active_button);
+    deleteTexture(&ctx->focus_button);
+    deleteTexture(&ctx->disabled_button);
+    deleteTexture(&ctx->button);
+}
 
 int main() {
     testGrid();
 
-    GLFW glfw{&handle_error};
+    initGLFW(&handle_error);
 
-    GridSolver solver;
-    solver.registerRule(GridSolver::Rule{flag_remaining_cells,
-                                         STR_SLICE("flag_remaining_cells")});
-    solver.registerRule(
-        GridSolver::Rule{show_hidden_cells, STR_SLICE("show_hidden_cells")});
-    registerPatterns(solver);
+    Arena arena = makeArena(MEGABYTES(10));
 
-    Window<Context> window{800, 600, "Hello, world", solver};
-    window.setPin();
+    Window<Context> window{};
+    initWindow(&arena, &window, 800, 600, "Hello, world");
+
+    initContext(&arena, &window, &window.ctx);
     window.setPos(500, 500);
     window.show();
 
@@ -1309,5 +1322,9 @@ int main() {
         }
     }
 
+    deinitContext(&window.ctx);
+    deleteWindow(&window);
+    freeArena(&arena);
+    glfwTerminate();
     return 0;
 }

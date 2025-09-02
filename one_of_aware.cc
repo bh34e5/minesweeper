@@ -2,8 +2,8 @@
 
 #include "arena.cc"
 #include "dirutils.cc"
-#include "dlist.cc"
 #include "grid.cc"
+#include "linkedlist.cc"
 #include "slice.cc"
 #include "solver.cc"
 
@@ -12,59 +12,60 @@
 struct CellOptions {
     Location root;
     Slice<Location> mine_options;
-
-    CellOptions() : root(Location{0, 0}), mine_options(Slice<Location>{}) {}
-    CellOptions(Location root, Slice<Location> mine_options)
-        : root(root), mine_options(mine_options) {}
 };
 
 struct OptionsKeeper {
-    DList<CellOptions> options;
+    LinkedList<CellOptions> options_sentinel;
 
-    auto addOptions(CellOptions ops) -> void { this->options.push(ops); }
+    auto addOptions(Arena *arena, CellOptions ops) -> void {
+        LinkedList<CellOptions> *ll =
+            arena->pushT<LinkedList<CellOptions>>({ops});
+
+        this->options_sentinel.enqueue(ll);
+    }
 
     auto removeOptions(CellOptions ops) -> void {
-        for (size_t i = 0; i < this->options.len; ++i) {
-            if (this->options.at(i).root.eql(ops.root)) {
-                this->options.swapRemove(i);
-                break;
+        LinkedList<CellOptions> *ll = &this->options_sentinel;
+        while ((ll = ll->next) != &this->options_sentinel) {
+            if (ll->val.root.eql(ops.root)) {
+                ll->prev->next = ll->next;
+                ll->next->prev = ll->prev;
             }
         }
     }
 };
 
 struct OneOfAwareRule {
-    static auto onEpochStart(Grid grid, void *data) -> void {
+    static auto onEpochStart(Grid *grid, void *data) -> void {
         auto rule = static_cast<OneOfAwareRule *>(data);
         return rule->onStart(grid);
     }
 
-    static auto onEpochFinish(Grid grid, void *data) -> void {
+    static auto onEpochFinish(Grid *grid, void *data) -> void {
         auto rule = static_cast<OneOfAwareRule *>(data);
         return rule->onFinish(grid);
     }
 
-    static auto applyRule(Grid grid, size_t row, size_t col, void *data)
+    static auto applyRule(Grid *grid, size_t row, size_t col, void *data)
         -> bool {
         auto rule = static_cast<OneOfAwareRule *>(data);
         return rule->apply(grid, row, col);
     }
 
-    Arena &rule_arena;
+    Arena arena;
     OptionsKeeper keeper;
-    size_t epoch_start_len;
 
-    OneOfAwareRule(Arena &rule_arena)
-        : rule_arena(rule_arena), keeper({}), epoch_start_len(rule_arena.len) {}
+    auto registerRule(Arena *arena, GridSolver *solver) -> void {
+        GridSolver::Rule rule = makeRule(applyRule, onEpochStart, onEpochFinish,
+                                         this, STR_SLICE("one_of_aware"));
 
-    auto registerRule(GridSolver &solver) -> void {
-        solver.registerRule(GridSolver::Rule{applyRule, onEpochStart,
-                                             onEpochFinish, this,
-                                             STR_SLICE("one_of_aware")});
+        solver->registerRule(arena, rule);
     }
 
-    auto onStart(Grid grid) -> void {
-        for (Cell &cell : grid.cells) {
+    auto onStart(Grid *grid) -> void {
+        LinkedList<CellOptions>::initSentinel(&this->keeper.options_sentinel);
+
+        for (Cell &cell : grid->cells) {
             if (cell.eff_number != 1) {
                 continue;
             }
@@ -73,7 +74,7 @@ struct OneOfAwareRule {
 
             { // new scope so I can reuse the iterator names
                 auto neighbor_op = Op<Grid::Neighbor>::empty();
-                auto neighbor_it = grid.neighborIterator(cell);
+                auto neighbor_it = grid->neighborIterator(&cell);
                 while ((neighbor_op = neighbor_it.next()).valid) {
                     Grid::Neighbor neighbor = neighbor_op.get();
                     if ((*neighbor.cell).display_type ==
@@ -83,12 +84,12 @@ struct OneOfAwareRule {
                 }
             }
 
-            Location *loc_ptr = this->rule_arena.pushTN<Location>(loc_count);
+            Location *loc_ptr = this->arena.pushTN<Location>(loc_count);
             loc_count = 0;
 
             { // new scope so I can reuse the iterator names
                 auto neighbor_op = Op<Grid::Neighbor>::empty();
-                auto neighbor_it = grid.neighborIterator(cell);
+                auto neighbor_it = grid->neighborIterator(&cell);
                 while ((neighbor_op = neighbor_it.next()).valid) {
                     Grid::Neighbor neighbor = neighbor_op.get();
                     if ((*neighbor.cell).display_type ==
@@ -98,75 +99,76 @@ struct OneOfAwareRule {
                 }
             }
 
-            this->keeper.addOptions(CellOptions{
-                grid.cellLocation(cell), Slice<Location>{loc_ptr, loc_count}});
+            this->keeper.addOptions(
+                &this->arena, CellOptions{grid->cellLocation(&cell),
+                                          Slice<Location>{loc_ptr, loc_count}});
         }
     }
 
-    auto onFinish(Grid grid) -> void {
-        this->keeper.options.clearRetainCapacity();
-        this->rule_arena.reset(this->epoch_start_len);
-    }
+    auto onFinish(Grid *grid) -> void { this->arena.reset(0); }
 
-    auto apply(Grid grid, size_t row, size_t col) -> bool {
+    auto apply(Grid *grid, size_t row, size_t col) -> bool {
         Location cur_loc{row, col};
-        Cell cur = grid[cur_loc];
+        Cell cur = (*grid)[cur_loc];
         if (cur.display_type != CellDisplayType::cdt_value ||
             cur.type != CellType::ct_number) {
             return false;
         }
 
-        return this->applyInner(grid, cur_loc, this->keeper.options.slice(),
+        return this->applyInner(grid, cur_loc,
+                                this->keeper.options_sentinel.next,
                                 Slice<CellOptions>{});
     }
 
-    auto applyInner(Grid grid, Location cur_loc,
-                    Slice<CellOptions> remaining_ops,
+    auto applyInner(Grid *grid, Location cur_loc,
+                    LinkedList<CellOptions> *remaining_ops,
                     Slice<CellOptions> applied_ops) -> bool {
-        size_t mark = this->rule_arena.len;
-        bool did_work = false;
+        size_t mark = this->arena.len;
+        if (remaining_ops == &this->keeper.options_sentinel) {
+            Cell &cell = (*grid)[cur_loc];
 
-        if (remaining_ops.len == 0) {
-            Cell &cell = grid[cur_loc];
+            bool flag_work = flagPossibleCells(grid, &cell, applied_ops);
+            bool reveal_work = revealPossibleCells(grid, &cell, applied_ops);
 
-            did_work = flagPossibleCells(grid, cell, applied_ops) || did_work;
-            did_work = revealPossibleCells(grid, cell, applied_ops) || did_work;
-
-            return did_work;
+            return flag_work || reveal_work;
         }
 
-        for (size_t rem_idx = 0; rem_idx < remaining_ops.len; ++rem_idx) {
-            CellOptions next_op = remaining_ops[rem_idx];
+        bool did_work = false;
 
-            if (!isValidOp(next_op, cur_loc, applied_ops, grid.dims)) {
+        // prev, since I am about to get the next on the first iteration
+        LinkedList<CellOptions> *rem = remaining_ops->prev;
+        while ((rem = rem->next) != &this->keeper.options_sentinel) {
+            CellOptions next_op = rem->val;
+
+            if (!isValidOp(next_op, cur_loc, applied_ops, grid->dims)) {
                 continue;
             }
 
-            CellOptions *pushed = this->rule_arena.pushT<CellOptions>(next_op);
+            CellOptions *pushed = this->arena.pushT<CellOptions>(next_op);
             Slice<CellOptions> inner_slice{pushed - applied_ops.len,
                                            applied_ops.len + 1};
 
-            did_work = this->applyInner(grid, cur_loc,
-                                        remaining_ops.slice(rem_idx + 1),
-                                        inner_slice) ||
-                       did_work;
+            bool inner_work =
+                this->applyInner(grid, cur_loc, rem->next, inner_slice);
 
-            this->rule_arena.reset(mark);
+            did_work = inner_work || did_work;
+
+            this->arena.reset(mark);
         }
 
         return did_work;
     }
 
-    auto flagPossibleCells(Grid grid, Cell &cell,
+    auto flagPossibleCells(Grid *grid, Cell *cell,
                            Slice<CellOptions> applied_ops) -> bool {
-        if (cell.eff_number == applied_ops.len) {
+        if (cell->eff_number == applied_ops.len) {
             return false;
         }
 
         size_t hidden_count = 0;
 
         auto neighbor_op = Op<Grid::Neighbor>::empty();
-        auto neighbor_it = grid.neighborIterator(cell);
+        auto neighbor_it = grid->neighborIterator(cell);
         while ((neighbor_op = neighbor_it.next()).valid) {
             Grid::Neighbor neighbor = neighbor_op.get();
             if ((*neighbor.cell).display_type != CellDisplayType::cdt_hidden) {
@@ -180,11 +182,11 @@ struct OneOfAwareRule {
             ++hidden_count;
         }
 
-        if (cell.eff_number - applied_ops.len == hidden_count) {
+        if (cell->eff_number - applied_ops.len == hidden_count) {
             bool did_work = false;
 
             auto neighbor_op = Op<Grid::Neighbor>::empty();
-            auto neighbor_it = grid.neighborIterator(cell);
+            auto neighbor_it = grid->neighborIterator(cell);
             while ((neighbor_op = neighbor_it.next()).valid) {
                 Grid::Neighbor neighbor = neighbor_op.get();
                 if ((*neighbor.cell).display_type !=
@@ -206,13 +208,13 @@ struct OneOfAwareRule {
         return false;
     }
 
-    auto revealPossibleCells(Grid grid, Cell &cell,
+    auto revealPossibleCells(Grid *grid, Cell *cell,
                              Slice<CellOptions> applied_ops) -> bool {
         bool did_work = false;
 
-        if (cell.eff_number == applied_ops.len) {
+        if (cell->eff_number == applied_ops.len) {
             auto neighbor_op = Op<Grid::Neighbor>::empty();
-            auto neighbor_it = grid.neighborIterator(cell);
+            auto neighbor_it = grid->neighborIterator(cell);
             while ((neighbor_op = neighbor_it.next()).valid) {
                 Grid::Neighbor neighbor = neighbor_op.get();
                 if ((*neighbor.cell).display_type !=
@@ -294,3 +296,14 @@ struct OneOfAwareRule {
         return false;
     }
 };
+
+auto makeOneOfAware(size_t arena_capacity) -> OneOfAwareRule {
+    OneOfAwareRule rule{};
+    rule.arena = makeArena(arena_capacity);
+    return rule;
+}
+
+auto deleteOneOfAware(OneOfAwareRule *rule) -> void {
+    freeArena(&rule->arena);
+    rule->arena = Arena{};
+}

@@ -1,44 +1,22 @@
 #pragma once
 
+#include "../arena.cc"
 #include "../op.cc"
 #include "../strslice.cc"
 #include "gl.cc"
 
+#include <assert.h>
 #include <stdio.h>
-#include <utility>
 
 struct Shader {
     GLuint shader;
-
-    Shader() : shader(0) {}
-    Shader(GLenum type) : shader(glCreateShader(type)) {}
-    Shader(Shader &&other) : shader(other.shader) { other.shader = 0; }
-    Shader(Shader const &other) = delete;
-
-    ~Shader() {
-        if (this->shader) {
-            printf("Deleting a shader\n");
-        }
-
-        glDeleteShader(this->shader);
-        this->shader = 0;
-    }
-
-    Shader &operator=(Shader &&other) {
-        Shader tmp{std::move(*this)};
-
-        this->shader = other.shader;
-        other.shader = 0;
-
-        return *this;
-    }
 
     auto source(StrSlice source_slice) -> void {
         GLint source_len = source_slice.len;
         glShaderSource(this->shader, 1, &source_slice.ptr, &source_len);
     }
 
-    auto compile() -> bool {
+    auto compile(Arena *arena) -> bool {
         glCompileShader(this->shader);
 
         GLint status = GL_FALSE;
@@ -48,66 +26,25 @@ struct Shader {
             GLint len = 0;
             glGetShaderiv(this->shader, GL_INFO_LOG_LENGTH, &len);
 
-            char *log = new char[len];
+            auto marker = arena->mark();
+            char *log = arena->pushTN<char>(len);
             glGetShaderInfoLog(this->shader, len, nullptr, log);
             fprintf(stderr, "Shader Log: %.*s\n", len, log);
-
-            delete[] log;
 
             return false;
         }
         return true;
-    }
-
-    static auto fromSourceOp(GLenum type, StrSlice source_slice) -> Op<Shader> {
-        Shader s{type};
-
-        s.source(source_slice);
-        if (!s.compile()) {
-            return Op<Shader>::empty();
-        }
-
-        return s;
-    }
-
-    static auto fromSource(GLenum type, StrSlice source_slice) -> Shader {
-        Op<Shader> op_shader = Shader::fromSourceOp(type, source_slice);
-
-        Shader result{std::move(op_shader.get())};
-        return result;
     }
 };
 
 struct Program {
     GLuint program;
 
-    Program() : program(glCreateProgram()) {}
-    Program(Program const &other) = delete;
-    Program(Program &&other) : program(other.program) { other.program = 0; }
-
-    ~Program() {
-        if (this->program) {
-            printf("Deleting a program\n");
-        }
-
-        glDeleteProgram(program);
-        this->program = 0;
-    }
-
-    Program &operator=(Program &&other) {
-        Program tmp{std::move(*this)};
-
-        this->program = other.program;
-        other.program = 0;
-
-        return *this;
-    }
-
-    auto attachShader(Shader &shader) -> void {
+    auto attachShader(Shader shader) -> void {
         glAttachShader(this->program, shader.shader);
     }
 
-    auto link() -> bool {
+    auto link(Arena *arena) -> bool {
         glLinkProgram(this->program);
 
         GLint status = GL_FALSE;
@@ -117,11 +54,10 @@ struct Program {
             GLint len = 0;
             glGetProgramiv(this->program, GL_INFO_LOG_LENGTH, &len);
 
-            char *log = new char[len];
+            auto marker = arena->mark();
+            char *log = arena->pushTN<char>(len);
             glGetProgramInfoLog(this->program, len, nullptr, log);
             fprintf(stderr, "Program Log: %.*s\n", len, log);
-
-            delete[] log;
 
             return false;
         }
@@ -130,3 +66,39 @@ struct Program {
 
     auto useProgram() -> void { glUseProgram(this->program); }
 };
+
+auto makeShader(Arena *arena, GLenum type, Slice<StrSlice> sources) -> Shader {
+    Shader s{glCreateShader(type)};
+
+    for (StrSlice &source : sources) {
+        s.source(source);
+    }
+    assert(s.compile(arena));
+
+    return s;
+}
+
+auto makeShader(Arena *arena, GLenum type, StrSlice source) -> Shader {
+    return makeShader(arena, type, Slice<StrSlice>{&source, 1});
+}
+
+auto deleteShader(Shader *shader) -> void {
+    glDeleteShader(shader->shader);
+    shader->shader = 0;
+}
+
+auto makeProgram(Arena *arena, Slice<Shader> shaders) -> Program {
+    Program p{glCreateProgram()};
+
+    for (Shader &shader : shaders) {
+        p.attachShader(shader);
+    }
+    assert(p.link(arena));
+
+    return p;
+}
+
+auto deleteProgram(Program *program) -> void {
+    glDeleteProgram(program->program);
+    program->program = 0;
+}

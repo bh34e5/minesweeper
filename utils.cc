@@ -3,6 +3,8 @@
 #include <assert.h>
 #include <stdlib.h>
 
+#define ARRAY_LEN(a) (sizeof(a) / sizeof(*a))
+
 #define EXIT myExit
 
 auto myExit(int code) -> void { exit(code); }

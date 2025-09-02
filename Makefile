@@ -14,7 +14,7 @@ DBG  := ${DBG_${shell uname -s}}
 PATTERNS  := $(wildcard patterns/*.pat)
 GENERATED := $(patsubst patterns/%.pat,generated/pat_%.cc,$(PATTERNS))
 
-.PHONY: all clean run debug
+.PHONY: all clean gen-files run debug
 
 all: minesweeper codegen
 
@@ -31,6 +31,8 @@ minesweeper: main.cc generated/generated.cc
 codegen: codegen.cc
 	@echo Building codegen
 	g++ $(FLAGS) $< -o $@ $(LIBS)
+
+gen-files: generated/generated.cc
 
 generated/generated.cc: $(GENERATED) build_gen_file.sh
 	$(shell if [ -f generated/generated.cc ] ; then rm generated/generated.cc ; fi)

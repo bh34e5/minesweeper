@@ -3,7 +3,6 @@
 #include "arena.cc"
 #include "dirutils.cc"
 #include "op.cc"
-#include "ref.cc"
 #include "slice.cc"
 
 #include <assert.h>
@@ -37,23 +36,23 @@ struct Grid {
 
     struct Neighbor {
         Location loc;
-        Ref<Cell> cell;
+        Cell *cell;
     };
 
     struct RowIterator {
-        Grid &grid;
+        Grid *grid;
         size_t row_ind;
 
         auto next() -> Op<Row> {
-            if (this->row_ind >= grid.dims.height) {
+            if (this->row_ind >= grid->dims.height) {
                 return Op<Row>::empty();
             }
-            return this->grid[this->row_ind++];
+            return (*this->grid)[this->row_ind++];
         }
     };
 
     struct NeighborIterator {
-        Grid &grid;
+        Grid *grid;
         ::NeighborIterator iterator;
 
         auto next() -> Op<Neighbor> {
@@ -63,17 +62,13 @@ struct Grid {
             }
 
             ::Location loc = neighbor_op.get();
-            return Neighbor{loc, this->grid[loc]};
+            return Neighbor{loc, &(*this->grid)[loc]};
         }
     };
 
     Slice<Cell> cells;
     Dims dims;
     size_t mine_count;
-
-    explicit Grid() : cells{}, dims{}, mine_count(0) {}
-    explicit Grid(Slice<Cell> cells, Dims dims, size_t mine_count)
-        : cells(cells), dims(dims), mine_count(mine_count) {}
 
     inline auto operator[](size_t row) -> Row {
         size_t row_s = (row + 0) * this->dims.width;
@@ -85,7 +80,7 @@ struct Grid {
         return (*this)[loc.row][loc.col];
     }
 
-    auto cellLocation(Cell &cell) -> Location {
+    auto cellLocation(Cell *cell) -> Location {
         size_t cell_idx = this->cells.indexOf(cell);
 
         size_t row = cell_idx / this->dims.width;
@@ -94,25 +89,25 @@ struct Grid {
         return Location{row, col};
     }
 
-    inline auto rowIterator() -> RowIterator { return RowIterator{*this, 0}; };
+    inline auto rowIterator() -> RowIterator { return RowIterator{this, 0}; };
 
     inline auto neighborIterator(size_t row, size_t col) -> NeighborIterator {
         return NeighborIterator{
-            *this, ::NeighborIterator{Location{row, col}, this->dims}};
+            this, ::NeighborIterator{Location{row, col}, this->dims}};
     };
 
     inline auto neighborIterator(Location loc) -> NeighborIterator {
-        return NeighborIterator{*this, ::NeighborIterator{loc, this->dims}};
+        return NeighborIterator{this, ::NeighborIterator{loc, this->dims}};
     };
 
-    inline auto neighborIterator(Cell &cell) -> NeighborIterator {
+    inline auto neighborIterator(Cell *cell) -> NeighborIterator {
         Location loc = this->cellLocation(cell);
         return this->neighborIterator(loc);
     }
 };
 
-auto flagCell(Grid grid, Location loc) -> void {
-    Cell &cell = grid[loc];
+auto flagCell(Grid *grid, Location loc) -> void {
+    Cell &cell = (*grid)[loc];
     if (cell.display_type == CellDisplayType::cdt_flag) {
         return;
     }
@@ -120,19 +115,19 @@ auto flagCell(Grid grid, Location loc) -> void {
     cell.display_type = CellDisplayType::cdt_flag;
 
     auto neighbor_op = Op<Grid::Neighbor>::empty();
-    auto neighbor_it = grid.neighborIterator(loc);
+    auto neighbor_it = grid->neighborIterator(loc);
     while ((neighbor_op = neighbor_it.next()).valid) {
         --(*neighbor_op.get().cell).eff_number;
     }
 }
 
-auto flagCell(Grid grid, Cell &cell) -> void {
-    Location cell_loc = grid.cellLocation(cell);
+auto flagCell(Grid *grid, Cell *cell) -> void {
+    Location cell_loc = grid->cellLocation(cell);
     flagCell(grid, cell_loc);
 }
 
-auto unflagCell(Grid grid, Location loc) -> void {
-    Cell &cell = grid[loc];
+auto unflagCell(Grid *grid, Location loc) -> void {
+    Cell &cell = (*grid)[loc];
     if (cell.display_type != CellDisplayType::cdt_flag) {
         return;
     }
@@ -140,19 +135,19 @@ auto unflagCell(Grid grid, Location loc) -> void {
     cell.display_type = CellDisplayType::cdt_hidden;
 
     auto neighbor_op = Op<Grid::Neighbor>::empty();
-    auto neighbor_it = grid.neighborIterator(loc);
+    auto neighbor_it = grid->neighborIterator(loc);
     while ((neighbor_op = neighbor_it.next()).valid) {
         ++(*neighbor_op.get().cell).eff_number;
     }
 }
 
-auto unflagCell(Grid grid, Cell &cell) -> void {
-    Location cell_loc = grid.cellLocation(cell);
+auto unflagCell(Grid *grid, Cell *cell) -> void {
+    Location cell_loc = grid->cellLocation(cell);
     unflagCell(grid, cell_loc);
 }
 
-auto uncoverSelfAndNeighbors(Grid grid, Location loc) -> void {
-    Cell &cell = grid[loc];
+auto uncoverSelfAndNeighbors(Grid *grid, Location loc) -> void {
+    Cell &cell = (*grid)[loc];
     if (cell.display_type != CellDisplayType::cdt_hidden) {
         return;
     }
@@ -162,7 +157,7 @@ auto uncoverSelfAndNeighbors(Grid grid, Location loc) -> void {
         cell.display_type = CellDisplayType::cdt_value;
         if (cell.number == 0) {
             auto neighbor_op = Op<Grid::Neighbor>::empty();
-            auto neighbor_it = grid.neighborIterator(loc);
+            auto neighbor_it = grid->neighborIterator(loc);
             while ((neighbor_op = neighbor_it.next()).valid) {
                 Grid::Neighbor neighbor = neighbor_op.get();
                 uncoverSelfAndNeighbors(grid, neighbor.loc);
@@ -175,12 +170,12 @@ auto uncoverSelfAndNeighbors(Grid grid, Location loc) -> void {
     }
 }
 
-auto uncoverSelfAndNeighbors(Grid grid, Cell &cell) -> void {
-    Location cell_loc = grid.cellLocation(cell);
+auto uncoverSelfAndNeighbors(Grid *grid, Cell *cell) -> void {
+    Location cell_loc = grid->cellLocation(cell);
     uncoverSelfAndNeighbors(grid, cell_loc);
 }
 
-auto generateGrid(Arena &arena, Dims dims, size_t mine_count,
+auto generateGrid(Arena *arena, Dims dims, size_t mine_count,
                   Location start_loc) -> Grid {
     size_t cell_count = dims.area();
     assert(cell_count > 0 && "Invalid dimensions");
@@ -190,7 +185,7 @@ auto generateGrid(Arena &arena, Dims dims, size_t mine_count,
     size_t neighbor_count = neighborCount(start_loc, dims);
     assert(mine_count < (cell_count - neighbor_count) && "Invalid mine count");
 
-    Cell *cells = arena.pushTN<Cell>(cell_count);
+    Cell *cells = arena->pushTN<Cell>(cell_count);
     Grid grid{Slice<Cell>{cells, cell_count}, dims, mine_count};
 
     // initialize cells
@@ -221,16 +216,16 @@ auto generateGrid(Arena &arena, Dims dims, size_t mine_count,
         auto neighbor_op = Op<Grid::Neighbor>::empty();
         auto neighbor_it = grid.neighborIterator(row, col);
         while ((neighbor_op = neighbor_it.next()).valid) {
-            Cell &cell = neighbor_op.get().cell;
-            if (cell.type == CellType::ct_number) {
-                ++cell.number;
-                ++cell.eff_number;
+            Cell *cell = neighbor_op.get().cell;
+            if (cell->type == CellType::ct_number) {
+                ++cell->number;
+                ++cell->eff_number;
             }
         }
     }
 
     // uncover initial click
-    uncoverSelfAndNeighbors(grid, start_loc);
+    uncoverSelfAndNeighbors(&grid, start_loc);
 
     return grid;
 }

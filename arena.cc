@@ -30,34 +30,6 @@ struct Arena {
         }
     };
 
-    explicit Arena(size_t cap)
-        : ptr(new char[cap]), cap(cap), len(0), mark_count(0) {}
-    Arena(Arena const &other) = delete;
-    Arena(Arena &&other)
-        : ptr(other.ptr), cap(other.cap), len(other.len),
-          mark_count(other.mark_count) {
-        if (other.mark_count > 0) {
-            fprintf(stderr, "Moving marked arena\n");
-            EXIT(1);
-        }
-
-        other.ptr = nullptr;
-        other.cap = 0;
-        other.len = 0;
-    }
-
-    ~Arena() {
-        if (this->mark_count > 0) {
-            fprintf(stderr, "Deleting marked arena\n");
-            EXIT(1);
-        }
-
-        delete[] static_cast<char *>(this->ptr);
-        this->ptr = nullptr;
-        this->cap = 0;
-        this->len = 0;
-    }
-
     auto mark() -> Marker { return Marker{*this}; }
 
     auto reset(size_t mark) -> void {
@@ -85,6 +57,19 @@ struct Arena {
         return res;
     }
 
+    auto subarena(size_t cap) -> Arena {
+        assert(this->mark_count == 0 && "Subarena from a marked arena");
+
+        if (cap == 0) {
+            cap = this->cap - this->len;
+        }
+
+        char *ptr = this->pushTN<char>(cap);
+
+        Arena res{ptr, cap};
+        return res;
+    }
+
     template <typename T> auto pushT() -> T * { return this->pushT(T{}); }
 
     template <typename T> auto pushT(T init) -> T * {
@@ -108,3 +93,20 @@ struct Arena {
         return ptr;
     }
 };
+
+auto makeArena(size_t capacity) -> Arena {
+    void *ptr = new char[capacity];
+    assert(ptr != nullptr && "Out of memory");
+
+    Arena res{ptr, capacity, 0, 0};
+    return res;
+}
+
+auto freeArena(Arena *arena) -> void {
+    delete[] (char *)arena->ptr;
+
+    arena->ptr = nullptr;
+    arena->cap = 0;
+    arena->len = 0;
+    arena->mark_count = 0;
+}

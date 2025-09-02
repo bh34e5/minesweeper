@@ -14,7 +14,6 @@
 #include <math.h>
 #include <string.h>
 #include <sys/types.h>
-#include <utility>
 
 auto scaleFloat(float val, ssize_t text_val, ssize_t base_val,
                 ssize_t text_range, ssize_t base_range) -> ssize_t {
@@ -27,18 +26,21 @@ struct BakedFont {
     float pixel_height;
     Dims bmp_dims;
     stbtt_bakedchar chardata[96]; // printable characters
-    QuadProgram quad_program;
+
+    Texture2D texture;
+
+    Program program;
+
+    GLint n_pos;
+    GLint n_tex_p;
+    GLint tex;
     GLint font_color;
 
-    BakedFont(float pixel_height, Dims bmp_dims, stbtt_bakedchar chardata[96],
-              QuadProgram &&quad_progam, GLint font_color)
-        : pixel_height(pixel_height), bmp_dims{bmp_dims}, chardata{},
-          quad_program{std::move(quad_progam)}, font_color(font_color) {
-        memcpy(this->chardata, chardata, 96 * sizeof(*chardata));
-    }
+    GLuint vao;
+    GLuint vbo;
 
     auto setColor(Color color) -> void {
-        this->quad_program.program.useProgram();
+        this->program.useProgram();
 
         GLfloat color_vec[3]{
             glColor(color.r),
@@ -47,6 +49,12 @@ struct BakedFont {
         };
 
         glUniform3fv(this->font_color, 1, color_vec);
+    }
+
+    auto quadProgram() -> QuadProgram {
+        QuadProgram q{this->program, this->n_pos, this->n_tex_p,
+                      this->tex,     this->vao,   this->vbo};
+        return q;
     }
 
     auto renderTextBaseline(SLocation loc, StrSlice text, Dims window_dims)
@@ -69,8 +77,8 @@ struct BakedFont {
 
             SRect char_rect = SRect::fromCorners(char_loc_ul, char_loc_br);
 
-            this->quad_program.renderAt(char_rect, q.s0, q.t0, q.s1, q.t1,
-                                        window_dims);
+            this->quadProgram().renderAt(char_rect, q.s0, q.t0, q.s1, q.t1,
+                                         window_dims, this->texture);
         }
     }
 
@@ -133,8 +141,8 @@ struct BakedFont {
 
             // NOTE(bhester): we don't scale the texture coordinates because we
             // want to render the whole character, just in a different rectangle
-            this->quad_program.renderAt(char_rect, q.s0, q.t0, q.s1, q.t1,
-                                        window_dims);
+            this->quadProgram().renderAt(char_rect, q.s0, q.t0, q.s1, q.t1,
+                                         window_dims, this->texture);
         }
     }
 
@@ -191,3 +199,38 @@ struct BakedFont {
         return text_rect.dims;
     }
 };
+
+auto makeBakedFont(float pixel_height, Dims bmp_dims,
+                   stbtt_bakedchar chardata[96], Texture2D texture, Program p,
+                   GLint n_pos, GLint n_tex_p, GLint tex, GLint font_color)
+    -> BakedFont {
+    BakedFont bf{pixel_height, bmp_dims, {},  texture,   p,
+                 n_pos,        n_tex_p,  tex, font_color};
+
+    memcpy(bf.chardata, chardata, sizeof(bf.chardata));
+
+    glGenVertexArrays(1, &bf.vao);
+    glGenBuffers(1, &bf.vbo);
+
+    bf.program.useProgram();
+    glBindVertexArray(bf.vao);
+    glBindBuffer(GL_ARRAY_BUFFER, bf.vbo);
+    glEnableVertexAttribArray(bf.n_pos);
+    glEnableVertexAttribArray(bf.n_tex_p);
+
+    glVertexAttribPointer(bf.n_pos, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat),
+                          (void const *)(0 * sizeof(GLfloat)));
+    glVertexAttribPointer(bf.n_tex_p, 2, GL_FLOAT, GL_FALSE,
+                          4 * sizeof(GLfloat),
+                          (void const *)(2 * sizeof(GLfloat)));
+
+    return bf;
+}
+
+auto deleteBakedFont(BakedFont *baked_font) -> void {
+    glDeleteVertexArrays(1, &baked_font->vao);
+    glDeleteBuffers(1, &baked_font->vbo);
+
+    deleteProgram(&baked_font->program);
+    deleteTexture(&baked_font->texture);
+}

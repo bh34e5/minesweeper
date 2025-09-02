@@ -1,14 +1,15 @@
 #pragma once
 
+#include "utils.cc"
+
 #include <assert.h>
 #include <stddef.h>
+
+#define SLICE(T, s) (Slice<T>{s, ARRAY_LEN(s)})
 
 template <typename T> struct Slice {
     T *ptr;
     size_t len;
-
-    explicit Slice() : ptr(nullptr), len(0) {}
-    explicit Slice(T *ptr, size_t len) : ptr(ptr), len(len) {}
 
     auto operator[](size_t idx) -> T & {
         assert(idx < this->len && "Out of bounds slice access");
@@ -60,14 +61,12 @@ template <typename T> struct Slice {
         return true;
     }
 
-    auto indexOf(T &item) -> size_t {
-        assert(this->contains(&item));
-
-        T *ptr = &item;
-        return ptr - this->ptr;
+    auto indexOf(T *item) -> size_t {
+        assert(this->contains(item));
+        return item - this->ptr;
     }
 
-    auto eql(Slice const &other) -> bool const {
+    auto eql(Slice other) -> bool {
         return this->ptr == other.ptr && this->len == other.len;
     }
 };

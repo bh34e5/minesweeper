@@ -104,7 +104,7 @@ struct SLocation {
     ssize_t row;
     ssize_t col;
 
-    auto eql(SLocation const &other) -> bool const {
+    auto eql(SLocation other) -> bool {
         return this->row == other.row && this->col == other.col;
     }
 };
@@ -113,7 +113,7 @@ struct Location {
     size_t row;
     size_t col;
 
-    auto eql(Location const &other) -> bool const {
+    auto eql(Location other) -> bool {
         return this->row == other.row && this->col == other.col;
     }
 };
@@ -218,11 +218,10 @@ struct NeighborIterator {
     Dims dims;
     size_t dir;
 
-    explicit NeighborIterator(Location loc, Dims dims)
-        : loc(loc), dims(dims), dir(0) {}
-
-    explicit NeighborIterator(size_t row, size_t col, Dims dims)
-        : NeighborIterator(Location{row, col}, dims) {}
+    static auto from(size_t row, size_t col, Dims dims) -> NeighborIterator {
+        NeighborIterator it{Location{row, col}, dims};
+        return it;
+    }
 
     auto next() -> Op<Location> {
         if (this->dir >= 8) {

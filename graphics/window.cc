@@ -14,9 +14,8 @@
 #include <assert.h>
 #include <stdio.h>
 #include <type_traits>
-#include <utility>
 
-char const QuadVertShaderText[] = R"(
+char const *QuadVertShaderText = R"(
 #version 330 core
 
 in vec2 n_pos;
@@ -30,7 +29,7 @@ void main() {
 }
 )";
 
-char const QuadFragShaderText[] = R"(
+char const *QuadFragShaderText = R"(
 #version 330 core
 
 in vec2 tex_p;
@@ -44,13 +43,13 @@ void main() {
 }
 )";
 
-char const FontFragShaderText[] = R"(
+char const *FontFragShaderText = R"(
 #version 330 core
 
 in vec2 tex_p;
 
-uniform vec3 font_color;
 uniform sampler2D tex;
+uniform vec3 font_color;
 
 out vec4 color;
 
@@ -79,7 +78,7 @@ template <typename T> struct Window;
 template <typename T> struct HasFramebufferSizeCallback {
     template <typename U,
               typename = decltype(std::declval<U>().framebufferSizeCallback(
-                  std::declval<Window<U> &>(), std::declval<int>(),
+                  std::declval<Window<U> *>(), std::declval<int>(),
                   std::declval<int>()))>
     static std::true_type test(int);
 
@@ -91,7 +90,7 @@ template <typename T> struct HasFramebufferSizeCallback {
 template <typename T> struct HasCursorPosCallback {
     template <typename U,
               typename = decltype(std::declval<U>().cursorPosCallback(
-                  std::declval<Window<U> &>(), std::declval<double>(),
+                  std::declval<Window<U> *>(), std::declval<double>(),
                   std::declval<double>()))>
     static std::true_type test(int);
 
@@ -103,7 +102,7 @@ template <typename T> struct HasCursorPosCallback {
 template <typename T> struct HasMouseButtonCallback {
     template <typename U,
               typename = decltype(std::declval<U>().mouseButtonCallback(
-                  std::declval<Window<U> &>(), std::declval<int>(),
+                  std::declval<Window<U> *>(), std::declval<int>(),
                   std::declval<int>(), std::declval<int>()))>
     static std::true_type test(int);
 
@@ -114,7 +113,7 @@ template <typename T> struct HasMouseButtonCallback {
 
 template <typename T> struct HasRender {
     template <typename U, typename = decltype(std::declval<U>().render(
-                              std::declval<Window<U> &>()))>
+                              std::declval<Window<U> *>()))>
     static std::true_type test(int);
 
     template <typename> static std::false_type test(...);
@@ -124,7 +123,7 @@ template <typename T> struct HasRender {
 
 template <typename T> struct HasPaint {
     template <typename U, typename = decltype(std::declval<U>().paint(
-                              std::declval<Window<U> &>()))>
+                              std::declval<Window<U> *>()))>
     static std::true_type test(int);
 
     template <typename> static std::false_type test(...);
@@ -134,7 +133,7 @@ template <typename T> struct HasPaint {
 
 template <typename T> struct HasProcessEvents {
     template <typename U, typename = decltype(std::declval<U>().processEvents(
-                              std::declval<Window<U> &>()))>
+                              std::declval<Window<U> *>()))>
     static std::true_type test(int);
 
     template <typename> static std::false_type test(...);
@@ -163,24 +162,6 @@ template <typename T> struct Window {
     bool needs_repaint;
     bool needs_rerender;
 
-    template <typename... Args>
-    Window(int width, int height, char const *title, Args &&...args)
-        : window(getInitWindow(width, height, title)),
-          QuadVertShader{Shader::fromSource(GL_VERTEX_SHADER,
-                                            STR_SLICE(QuadVertShaderText))},
-          QuadFragShader{Shader::fromSource(GL_FRAGMENT_SHADER,
-                                            STR_SLICE(QuadFragShaderText))},
-          FontFragShader{Shader::fromSource(GL_FRAGMENT_SHADER,
-                                            STR_SLICE(FontFragShaderText))},
-          ctx(*this, std::forward<Args>(args)...), needs_repaint(true),
-          needs_rerender(true) {
-        glfwSetFramebufferSizeCallback(this->window, &windowFramebufferSize);
-        glfwSetCursorPosCallback(this->window, &windowCursorPos);
-        glfwSetMouseButtonCallback(this->window, &windowMouseButton);
-    }
-
-    ~Window() { glfwDestroyWindow(this->window); }
-
     static void windowFramebufferSize(GLFWwindow *window, int width,
                                       int height) {
         if constexpr (HasFramebufferSizeCallback<T>::value) {
@@ -190,7 +171,7 @@ template <typename T> struct Window {
             }
 
             Window *wrapped = static_cast<Window *>(user_ptr);
-            wrapped->ctx.framebufferSizeCallback(*wrapped, width, height);
+            wrapped->ctx.framebufferSizeCallback(wrapped, width, height);
         }
     }
 
@@ -202,7 +183,7 @@ template <typename T> struct Window {
             }
 
             Window *wrapped = static_cast<Window *>(user_ptr);
-            wrapped->ctx.cursorPosCallback(*wrapped, xpos, ypos);
+            wrapped->ctx.cursorPosCallback(wrapped, xpos, ypos);
         }
     }
 
@@ -215,11 +196,9 @@ template <typename T> struct Window {
             }
 
             Window *wrapped = static_cast<Window *>(user_ptr);
-            wrapped->ctx.mouseButtonCallback(*wrapped, button, action, mods);
+            wrapped->ctx.mouseButtonCallback(wrapped, button, action, mods);
         }
     }
-
-    auto setPin() -> void { glfwSetWindowUserPointer(this->window, this); }
 
     auto shouldClose() -> bool { return glfwWindowShouldClose(this->window); }
 
@@ -243,7 +222,7 @@ template <typename T> struct Window {
     auto renderNow() -> void {
         glClear(GL_COLOR_BUFFER_BIT);
         if constexpr (HasRender<T>::value) {
-            this->ctx.render(*this);
+            this->ctx.render(this);
         }
         glfwSwapBuffers(this->window);
     }
@@ -251,9 +230,9 @@ template <typename T> struct Window {
     auto paintNow() -> void {
         glClear(GL_COLOR_BUFFER_BIT);
         if constexpr (HasPaint<T>::value) {
-            this->ctx.paint(*this);
+            this->ctx.paint(this);
         } else if constexpr (HasRender<T>::value) {
-            this->ctx.render(*this);
+            this->ctx.render(this);
         }
         glfwSwapBuffers(this->window);
     }
@@ -262,7 +241,7 @@ template <typename T> struct Window {
         glfwPollEvents();
 
         if constexpr (HasProcessEvents<T>::value) {
-            this->ctx.processEvents(*this);
+            this->ctx.processEvents(this);
         }
     }
 
@@ -302,94 +281,98 @@ template <typename T> struct Window {
                          clamp<ssize_t>(0, mouse_loc.col, dims.width)};
     }
 
-    auto quadProgramOp() -> Op<QuadProgram> {
-        Program p{};
+    auto makeBaseQuadProgram(Arena *arena) -> QuadProgram {
+        Shader shaders_arr[] = {this->QuadVertShader, this->QuadFragShader};
 
-        p.attachShader(this->QuadVertShader);
-        p.attachShader(this->QuadFragShader);
-        if (!p.link()) {
-            return Op<QuadProgram>::empty();
-        }
+        Program p = makeProgram(arena, SLICE(Shader, shaders_arr));
+        p.useProgram();
 
-        glUseProgram(p.program);
         GLint n_pos = glGetAttribLocation(p.program, "n_pos");
         GLint n_tex_p = glGetAttribLocation(p.program, "n_tex_p");
         GLint tex = glGetUniformLocation(p.program, "tex");
 
-        return QuadProgram{std::move(p), n_pos, n_tex_p, tex, Texture2D{}};
-    }
+        return makeQuadProgram(p, n_pos, n_tex_p, tex);
+    };
 
-    auto quadProgram() -> QuadProgram {
-        Op<QuadProgram> op_program = Window::quadProgramOp();
-
-        QuadProgram result{std::move(op_program.get())};
-        return result;
-    }
-
-    auto bakedFontOp(Arena &arena, char const *font_file, float pixel_height)
-        -> Op<BakedFont> {
-        auto marker = arena.mark();
+    auto makeBaseBakedFont(Arena *arena, char const *font_file,
+                           float pixel_height) -> BakedFont {
+        auto marker = arena->mark();
 
         char const *file_contents = getContentsZ(arena, font_file);
-        unsigned char const *casted = static_cast<unsigned char const *>(
-            static_cast<void const *>(file_contents));
 
         stbtt_bakedchar chardata[96]; // printable characters
         Dims bmp_dims{512, 512};
-        unsigned char *pixels = arena.pushTN<unsigned char>(bmp_dims.area());
+        unsigned char *pixels = arena->pushTN<unsigned char>(bmp_dims.area());
 
-        stbtt_BakeFontBitmap(casted, 0, pixel_height, pixels, bmp_dims.width,
+        printf("%p\n", file_contents);
+        stbtt_BakeFontBitmap((unsigned char const *)file_contents, 0,
+                             pixel_height, pixels, bmp_dims.width,
                              bmp_dims.height, 32 /* space */,
                              96 /* 127 - 32 + 1 */, chardata);
 
-        Program p{};
+        Texture2D texture = makeTexture();
+        texture.bindAlphaData(bmp_dims, pixels);
 
-        p.attachShader(this->QuadVertShader);
-        p.attachShader(this->FontFragShader);
-        if (!p.link()) {
-            return Op<BakedFont>::empty();
-        }
+        Shader shaders_arr[] = {this->QuadVertShader, this->FontFragShader};
 
-        glUseProgram(p.program);
+        Program p = makeProgram(arena, SLICE(Shader, shaders_arr));
+        p.useProgram();
+
         GLint n_pos = glGetAttribLocation(p.program, "n_pos");
         GLint n_tex_p = glGetAttribLocation(p.program, "n_tex_p");
-        GLint font_color = glGetUniformLocation(p.program, "font_color");
         GLint tex = glGetUniformLocation(p.program, "tex");
+        GLint font_color = glGetUniformLocation(p.program, "font_color");
 
-        QuadProgram quad_program{std::move(p), n_pos, n_tex_p, tex,
-                                 Texture2D{}};
-        quad_program.texture.bindAlphaData(bmp_dims, pixels);
-
-        return BakedFont{pixel_height, bmp_dims, chardata,
-                         std::move(quad_program), font_color};
+        return makeBakedFont(pixel_height, bmp_dims, chardata, texture, p,
+                             n_pos, n_tex_p, tex, font_color);
     }
 
-    auto bakedFont(Arena &arena, char const *font_file, float pixel_height)
-        -> BakedFont {
-        Op<BakedFont> op_font =
-            Window::bakedFontOp(arena, font_file, pixel_height);
-
-        BakedFont result{std::move(op_font.get())};
-        return result;
-    }
-
-    auto renderQuad(QuadProgram &p, SRect rect) -> void {
+    auto renderQuad(QuadProgram *p, SRect rect, Texture2D texture) -> void {
         Dims window_dims = this->getDims();
-        p.renderAt(rect, window_dims);
+        p->renderAt(rect, window_dims, texture);
     }
 
-    auto renderText(BakedFont &p, SLocation loc, StrSlice text) -> void {
+    auto renderText(BakedFont *p, SLocation loc, StrSlice text) -> void {
         Dims window_dims = this->getDims();
-        p.renderText(loc, text, window_dims);
+        p->renderText(loc, text, window_dims);
     }
 
-    auto renderText(BakedFont &p, SRect rect, StrSlice text) -> void {
+    auto renderText(BakedFont *p, SRect rect, StrSlice text) -> void {
         Dims window_dims = this->getDims();
-        p.renderText(rect, text, window_dims);
+        p->renderText(rect, text, window_dims);
     }
 
-    auto renderCenteredText(BakedFont &p, SRect rect, StrSlice text) -> void {
+    auto renderCenteredText(BakedFont *p, SRect rect, StrSlice text) -> void {
         Dims window_dims = this->getDims();
-        p.renderCenteredText(rect, text, window_dims);
+        p->renderCenteredText(rect, text, window_dims);
     }
 };
+
+template <typename T>
+auto initWindow(Arena *arena, Window<T> *w, int width, int height,
+                char const *title) -> void {
+    w->window = getInitWindow(width, height, title);
+    w->QuadVertShader =
+        makeShader(arena, GL_VERTEX_SHADER, strSlice(QuadVertShaderText));
+    w->QuadFragShader =
+        makeShader(arena, GL_FRAGMENT_SHADER, strSlice(QuadFragShaderText));
+    w->FontFragShader =
+        makeShader(arena, GL_FRAGMENT_SHADER, strSlice(FontFragShaderText));
+    w->needs_repaint = true;
+    w->needs_rerender = true;
+
+    glfwSetFramebufferSizeCallback(w->window,
+                                   &Window<T>::windowFramebufferSize);
+    glfwSetCursorPosCallback(w->window, &Window<T>::windowCursorPos);
+    glfwSetMouseButtonCallback(w->window, &Window<T>::windowMouseButton);
+
+    glfwSetWindowUserPointer(w->window, w);
+}
+
+template <typename T> auto deleteWindow(Window<T> *window) -> void {
+    deleteShader(&window->FontFragShader);
+    deleteShader(&window->QuadFragShader);
+    deleteShader(&window->QuadVertShader);
+
+    glfwDestroyWindow(window->window);
+}

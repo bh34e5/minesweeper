@@ -431,7 +431,7 @@ struct Context {
 
         ssize_t factor = 5; // must be > 1
         ssize_t solver_width =
-            clamp<size_t>(300, render_dims.width / factor, 800);
+            clamp<size_t>(250, render_dims.width / factor, 800);
 
         Dims grid_dims{(size_t)(render_dims.width - solver_width),
                        render_dims.height};

@@ -233,10 +233,31 @@ auto generateGrid(Arena *arena, Dims dims, size_t mine_count,
 auto gridSolved(Grid grid) -> bool {
     for (Cell cell : grid.cells) {
         if (cell.type == CellType::ct_number &&
-            cell.display_type != CellDisplayType::cdt_value)
+            cell.display_type != CellDisplayType::cdt_value) {
             return false;
+        }
     }
     return true;
+}
+
+auto gridLost(Grid grid) -> bool {
+    for (Cell cell : grid.cells) {
+        if (cell.display_type == CellDisplayType::cdt_value &&
+            cell.type == CellType::ct_mine) {
+            return true;
+        }
+    }
+    return false;
+}
+
+auto losingCell(Grid grid) -> Location {
+    for (Cell &cell : grid.cells) {
+        if (cell.display_type == CellDisplayType::cdt_value &&
+            cell.type == CellType::ct_mine) {
+            return grid.cellLocation(&cell);
+        }
+    }
+    assert(0 && "Grid is not losing");
 }
 
 auto printCellValue(Cell cell) -> void {

@@ -258,6 +258,7 @@ struct Context {
             et_empty,
             et_background,
             et_modal_background,
+            et_continue_btn,
             et_restart_btn,
             et_empty_grid_cell,
             et_revealed_grid_cell,
@@ -363,6 +364,7 @@ struct Context {
     bool last_step_success;
 
     static constexpr Color const TEXT_COLOR = Color::grayscale(50);
+    static constexpr Color const DARK_RED = Color{140, 30, 30};
 
     void framebufferSizeCallback(ThisWindow *window, int width, int height) {
         assert(width >= 0 && "Invalid width");
@@ -410,6 +412,8 @@ struct Context {
         }
     }
 
+    // build scene {{{1
+    // build scene {{{2
     auto buildScene(ThisWindow *window) -> void {
         Dims window_dims = window->getDims();
         size_t w = window_dims.width;
@@ -431,6 +435,7 @@ struct Context {
 
         Dims grid_dims{(size_t)(render_dims.width - solver_width),
                        render_dims.height};
+        SRect grid_rect = {render_loc, grid_dims};
 
         SLocation solver_loc{
             render_loc.row,
@@ -443,100 +448,7 @@ struct Context {
                                                    render_loc, render_dims));
 
         if (this->grid.dims.area() > 0) {
-            size_t cell_padding = 1;
-            size_t r_padding = this->grid.dims.height * 2 * cell_padding;
-            size_t c_padding = this->grid.dims.width * 2 * cell_padding;
-
-            size_t cell_width =
-                (grid_dims.width - c_padding) / this->grid.dims.width;
-            size_t cell_height =
-                (grid_dims.height - r_padding) / this->grid.dims.height;
-
-            Dims cell_dims{cell_width, cell_height};
-
-            for (size_t r = 0; r < this->grid.dims.height; ++r) {
-                ssize_t r_pos =
-                    r * (cell_height + 2 * cell_padding) + cell_padding;
-
-                for (size_t c = 0; c < this->grid.dims.width; ++c) {
-                    ssize_t c_pos =
-                        c * (cell_width + 2 * cell_padding) + cell_padding;
-
-                    SLocation cell_loc{render_loc.row + r_pos,
-                                       render_loc.col + c_pos};
-
-                    Cell &cell = this->grid[r][c];
-
-                    Element::Type et = Element::Type::et_empty;
-                    switch (cell.display_type) {
-                    case CellDisplayType::cdt_hidden: {
-                        et = Element::Type::et_empty_grid_cell;
-                    } break;
-                    case CellDisplayType::cdt_value: {
-                        et = Element::Type::et_revealed_grid_cell;
-                    } break;
-                    case CellDisplayType::cdt_flag: {
-                        et = Element::Type::et_flagged_grid_cell;
-                    } break;
-                    case CellDisplayType::cdt_maybe_flag: {
-                        et = Element::Type::et_maybe_flagged_grid_cell;
-                    } break;
-                    }
-
-                    this->pushElement(Element::makeCellElement(
-                        et, cell_loc, cell_dims, Location{r, c}));
-                }
-            }
-
-            this->buildSolverPane(solver_rect);
-
-            if (gridSolved(this->grid)) {
-                // Show You Win modal and Restart button
-
-                this->pushElement(
-                    Element::makeRectElement(Element::Type::et_modal_background,
-                                             render_loc, render_dims));
-
-                StrSlice you_win_slice = STR_SLICE("You Win!");
-                StrSlice restart_slice = STR_SLICE("Restart");
-
-                Dims button_padding{10, 10};
-                Dims button_dims =
-                    this->getButtonDims(you_win_slice, {}, button_padding);
-
-                VBox box{};
-                initVBox(&box, 10);
-
-                box.pushItem(&this->arena, this->getTextDims(you_win_slice));
-                box.pushItem(&this->arena, button_dims);
-                SRect base_rect = centerIn(render_rect, box.total_dims);
-
-                Dims modal_dims{render_dims.width / 3, render_dims.height / 3};
-                if (base_rect.dims.width > modal_dims.width) {
-                    modal_dims.width = base_rect.dims.width;
-                }
-                if (base_rect.dims.height > modal_dims.height) {
-                    modal_dims.height = base_rect.dims.height;
-                }
-
-                SLocation modal_loc = centerIn(render_rect, modal_dims).ul;
-
-                this->pushElement(Element::makeRectElement(
-                    Element::Type::et_background, modal_loc, modal_dims));
-
-                VBox::LocIterator vbox_it = box.itemsIterator(base_rect.ul);
-
-                this->pushElement(Element::makeTextElement(
-                    Element::Type::et_text, vbox_it.getNext().ul, you_win_slice,
-                    TEXT_COLOR));
-
-                SRect button_rect = vbox_it.getNext();
-                this->pushButtonAt(Element::Type::et_restart_btn,
-                                   centerIn(button_rect, button_dims).ul,
-                                   restart_slice, {}, button_padding);
-
-                assert(!vbox_it.hasNext());
-            }
+            this->buildPlayScene(render_rect, grid_rect, solver_rect);
         } else if (this->preview_grid) {
             size_t cell_padding = 1;
             size_t r_padding = this->height_input * 2 * cell_padding;
@@ -571,7 +483,9 @@ struct Context {
             this->buildGenerateScene(render_dims);
         }
     }
+    // }}}2
 
+    // build solver pane {{{2
     auto buildSolverPane(SRect footer_rect) -> void {
         StrSlice btn_text = STR_SLICE("Step Solver");
         StrSlice rule_used_slice = STR_SLICE("*");
@@ -625,6 +539,8 @@ struct Context {
         Color rule_color = Color::grayscale(80);
         VBox::LocIterator names_it = name_box.itemsIterator(names_rect.ul);
 
+        bool show_rule_used_mark = this->did_step && this->last_step_success;
+
         LinkedList<GridSolver::Rule> *ll = &this->solver.rule_sentinel;
         for (size_t rule_idx = 0; rule_idx < this->solver.rule_count;
              ++rule_idx) {
@@ -635,7 +551,7 @@ struct Context {
                                name_box_loc.col +
                                    (ssize_t)rule_used_dims.width};
 
-            if (this->did_step && this->last_work_rule == rule_idx) {
+            if (show_rule_used_mark && this->last_work_rule == rule_idx) {
                 this->pushElement(
                     Element::makeTextElement(Element::et_text, name_box_loc,
                                              rule_used_slice, rule_color));
@@ -647,14 +563,16 @@ struct Context {
         }
 
         if (this->did_step && !this->last_step_success) {
-            this->pushElement(Element::makeTextElement(
-                Element::Type::et_text, no_rule_loc, no_rule_applied_slice,
-                Color{140, 30, 30}));
+            this->pushElement(
+                Element::makeTextElement(Element::Type::et_text, no_rule_loc,
+                                         no_rule_applied_slice, DARK_RED));
         }
 
         assert(!names_it.hasNext());
     }
+    // }}}2
 
+    // build generate scene {{{2
     auto buildGenerateScene(Dims render_dims) -> void {
         SRect render_rect{SLocation{0, 0}, render_dims};
 
@@ -774,7 +692,169 @@ struct Context {
         this->pushButtonAt(Element::Type::et_generate_grid_btn, button_loc,
                            gen_slice, {}, Dims{5, 5});
     }
+    // }}}2
 
+    // build play scene {{{2
+    auto buildPlayScene(SRect render_rect, SRect grid_rect, SRect solver_rect)
+        -> void {
+        size_t cell_padding = 1;
+        size_t r_padding = this->grid.dims.height * 2 * cell_padding;
+        size_t c_padding = this->grid.dims.width * 2 * cell_padding;
+
+        size_t cell_width =
+            (grid_rect.dims.width - c_padding) / this->grid.dims.width;
+        size_t cell_height =
+            (grid_rect.dims.height - r_padding) / this->grid.dims.height;
+
+        Dims cell_dims{cell_width, cell_height};
+
+        for (size_t r = 0; r < this->grid.dims.height; ++r) {
+            ssize_t r_pos = r * (cell_height + 2 * cell_padding) + cell_padding;
+
+            for (size_t c = 0; c < this->grid.dims.width; ++c) {
+                ssize_t c_pos =
+                    c * (cell_width + 2 * cell_padding) + cell_padding;
+
+                SLocation cell_loc{render_rect.ul.row + r_pos,
+                                   render_rect.ul.col + c_pos};
+
+                Cell &cell = this->grid[r][c];
+
+                Element::Type et = Element::Type::et_empty;
+                switch (cell.display_type) {
+                case CellDisplayType::cdt_hidden: {
+                    et = Element::Type::et_empty_grid_cell;
+                } break;
+                case CellDisplayType::cdt_value: {
+                    et = Element::Type::et_revealed_grid_cell;
+                } break;
+                case CellDisplayType::cdt_flag: {
+                    et = Element::Type::et_flagged_grid_cell;
+                } break;
+                case CellDisplayType::cdt_maybe_flag: {
+                    et = Element::Type::et_maybe_flagged_grid_cell;
+                } break;
+                }
+
+                this->pushElement(Element::makeCellElement(
+                    et, cell_loc, cell_dims, Location{r, c}));
+            }
+        }
+
+        this->buildSolverPane(solver_rect);
+
+        if (gridSolved(this->grid)) {
+            // Show You Win modal and Restart button
+
+            this->pushElement(
+                Element::makeRectElement(Element::Type::et_modal_background,
+                                         render_rect.ul, render_rect.dims));
+
+            StrSlice you_win_slice = STR_SLICE("You Win!");
+            StrSlice restart_slice = STR_SLICE("Restart");
+
+            Dims button_padding{10, 10};
+            Dims button_dims =
+                this->getButtonDims(restart_slice, {}, button_padding);
+
+            VBox box{};
+            initVBox(&box, 10);
+
+            box.pushItem(&this->arena, this->getTextDims(you_win_slice));
+            box.pushItem(&this->arena, button_dims);
+            SRect base_rect = centerIn(render_rect, box.total_dims);
+
+            Dims min_modal_dims{render_rect.dims.width / 3,
+                                render_rect.dims.height / 3};
+
+            Dims modal_dims = expandToMin(min_modal_dims, base_rect.dims);
+            SLocation modal_loc = centerIn(render_rect, modal_dims).ul;
+
+            this->pushElement(Element::makeRectElement(
+                Element::Type::et_background, modal_loc, modal_dims));
+
+            VBox::LocIterator vbox_it = box.itemsIterator(base_rect.ul);
+
+            this->pushElement(Element::makeTextElement(
+                Element::Type::et_text, vbox_it.getNext().ul, you_win_slice,
+                TEXT_COLOR));
+
+            SRect button_rect = vbox_it.getNext();
+            this->pushButtonAt(Element::Type::et_restart_btn,
+                               centerIn(button_rect, button_dims).ul,
+                               restart_slice, {}, button_padding);
+
+            assert(!vbox_it.hasNext());
+        } else if (gridLost(this->grid)) {
+            // Show You Lose modal, Continue, and Restart buttons
+
+            this->pushElement(
+                Element::makeRectElement(Element::Type::et_modal_background,
+                                         render_rect.ul, render_rect.dims));
+
+            StrSlice you_lose_slice = STR_SLICE("You Lose!");
+            StrSlice continue_slice = STR_SLICE("Continue");
+            StrSlice restart_slice = STR_SLICE("Restart");
+
+            Dims button_padding{10, 10};
+            Dims continue_button_dims =
+                this->getButtonDims(continue_slice, {}, button_padding);
+            Dims restart_button_dims =
+                this->getButtonDims(restart_slice, {}, button_padding);
+
+            VBox box{};
+            initVBox(&box, 10);
+
+            HBox button_box{};
+            initHBox(&button_box, 10);
+
+            button_box.pushItem(&this->arena, continue_button_dims);
+            button_box.pushItem(&this->arena, restart_button_dims);
+
+            box.pushItem(&this->arena, this->getTextDims(you_lose_slice));
+            box.pushItem(&this->arena, button_box.total_dims);
+            SRect base_rect = centerIn(render_rect, box.total_dims);
+
+            Dims min_modal_dims{render_rect.dims.width / 3,
+                                render_rect.dims.height / 3};
+
+            Dims modal_dims = expandToMin(min_modal_dims, base_rect.dims);
+            SLocation modal_loc = centerIn(render_rect, modal_dims).ul;
+
+            this->pushElement(Element::makeRectElement(
+                Element::Type::et_background, modal_loc, modal_dims));
+
+            VBox::LocIterator vbox_it = box.itemsIterator(base_rect.ul);
+
+            this->pushElement(Element::makeTextElement(
+                Element::Type::et_text, vbox_it.getNext().ul, you_lose_slice,
+                TEXT_COLOR));
+
+            SRect button_rect =
+                centerIn(vbox_it.getNext(), button_box.total_dims);
+            HBox::LocIterator hbox_it =
+                button_box.itemsIterator(button_rect.ul);
+
+            Element *continue_event = this->pushButtonAt(
+                Element::Type::et_continue_btn,
+                centerIn(hbox_it.getNext(), continue_button_dims).ul,
+                continue_slice, {}, button_padding);
+
+            continue_event->cell_loc = losingCell(this->grid);
+
+            this->pushButtonAt(
+                Element::Type::et_restart_btn,
+                centerIn(hbox_it.getNext(), restart_button_dims).ul,
+                restart_slice, {}, button_padding);
+
+            assert(!hbox_it.hasNext());
+            assert(!vbox_it.hasNext());
+        }
+    }
+    // }}}2
+    // }}}1
+
+    // render scene {{{1
     auto renderScene(ThisWindow *window) -> void {
         LLElement *el = &this->el_sentinel;
 
@@ -795,7 +875,7 @@ struct Context {
             } break;
             case Element::Type::et_modal_background: {
                 this->renderQuad(window, SRect{el->val.loc, el->val.dims},
-                                 this->background);
+                                 this->modal_background);
             } break;
             case Element::Type::et_empty_grid_cell: {
                 Texture2D texture =
@@ -808,20 +888,27 @@ struct Context {
                 SRect render_rect{el->val.loc, el->val.dims};
                 this->renderQuad(window, render_rect, this->background);
 
-                // TODO(bhester): change font color based on the number?
-                this->baked_font.setColor(Color::grayscale(225));
+                Cell cell = this->grid[el->val.cell_loc];
+                if (cell.type == CellType::ct_mine) {
+                    this->baked_font.setColor(DARK_RED);
+                    this->renderCenteredText(window, render_rect,
+                                             STR_SLICE("*"));
+                } else {
+                    // TODO(bhester): change font color based on the number?
+                    this->baked_font.setColor(Color::grayscale(225));
 
-                unsigned char cell_val = this->grid[el->val.cell_loc].number;
-                switch (cell_val) {
-                case 0:
-                    // don't render a number
-                    break;
-                default: {
-                    StrSlice nums = STR_SLICE("12345678");
-                    this->renderCenteredText(
-                        window, render_rect,
-                        nums.slice(cell_val - 1, cell_val));
-                } break;
+                    unsigned char cell_val = cell.number;
+                    switch (cell_val) {
+                    case 0:
+                        // don't render a number
+                        break;
+                    default: {
+                        StrSlice nums = STR_SLICE("12345678");
+                        this->renderCenteredText(
+                            window, render_rect,
+                            nums.slice(cell_val - 1, cell_val));
+                    } break;
+                    }
                 }
             } break;
             case Element::Type::et_flagged_grid_cell: {
@@ -838,6 +925,7 @@ struct Context {
                 this->baked_font.setColor(el->val.color);
                 this->renderText(window, el->val.loc, el->val.text);
             } break;
+            case Element::Type::et_continue_btn:
             case Element::Type::et_restart_btn:
             case Element::Type::et_generate_grid_btn:
             case Element::Type::et_step_solver_btn:
@@ -855,6 +943,7 @@ struct Context {
             }
         }
     }
+    // }}}1
 
     auto interactable(Element::Type type) -> bool {
         switch (type) {
@@ -865,6 +954,7 @@ struct Context {
             return false;
         } break;
 
+        case Element::Type::et_continue_btn:
         case Element::Type::et_restart_btn:
         case Element::Type::et_empty_grid_cell:
         case Element::Type::et_revealed_grid_cell:
@@ -951,6 +1041,15 @@ struct Context {
                         case Element::Type::et_maybe_flagged_grid_cell:
                         case Element::Type::et_text:
                             break;
+                        case Element::Type::et_continue_btn: {
+                            keep_processing_elems = false;
+
+                            Location cell_loc = el->val.cell_loc;
+                            this->grid[cell_loc].display_type =
+                                CellDisplayType::cdt_flag;
+
+                            window->needs_rerender = true;
+                        } break;
                         case Element::Type::et_restart_btn: {
                             keep_processing_elems = false;
 
@@ -974,13 +1073,22 @@ struct Context {
                                     Dims{this->width_input, this->height_input},
                                     this->mine_input, el->val.cell_loc);
                             } else {
-                                uncoverSelfAndNeighbors(&this->grid,
-                                                        el->val.cell_loc);
-
-                                this->did_step = false;
-                                this->last_work_rule = 0;
-                                this->last_step_success = false;
+                                Cell &cell = this->grid[el->val.cell_loc];
+                                if (cell.type == CellType::ct_mine) {
+                                    // just set the cell as the value and we
+                                    // will render the mine and the "You Lose!"
+                                    // modal based on the fact that this is
+                                    // showing
+                                    cell.display_type =
+                                        CellDisplayType::cdt_value;
+                                } else {
+                                    uncoverSelfAndNeighbors(&this->grid,
+                                                            el->val.cell_loc);
+                                }
                             }
+                            this->did_step = false;
+                            this->last_work_rule = 0;
+                            this->last_step_success = false;
 
                             window->needs_rerender = true;
                         } break;
@@ -1078,6 +1186,7 @@ struct Context {
                         case Element::Type::et_empty:
                         case Element::Type::et_background:
                         case Element::Type::et_modal_background:
+                        case Element::Type::et_continue_btn:
                         case Element::Type::et_restart_btn:
                         case Element::Type::et_revealed_grid_cell:
                         case Element::Type::et_maybe_flagged_grid_cell:
@@ -1115,24 +1224,24 @@ struct Context {
 
     auto pushButtonAt(Element::Type type, SLocation loc, StrSlice text,
                       Dims min_dims = {}, Dims padding = {},
-                      bool disabled = false) -> SRect {
+                      bool disabled = false) -> Element * {
         Dims render_dims = this->getButtonDims(text, min_dims, padding);
-        SRect rect{loc, render_dims};
+        Element *element = this->pushElement(Element::makeButtonElement(
+            type, loc, render_dims, padding, text, disabled));
 
-        this->pushElement(Element::makeButtonElement(type, loc, render_dims,
-                                                     padding, text, disabled));
-        return rect;
+        return element;
     }
 
     auto pushButtonCenteredIn(Element::Type type, SRect rect, StrSlice text,
                               Dims min_dims = {}, Dims padding = {},
-                              bool disabled = false) -> SRect {
+                              bool disabled = false) -> Element * {
         Dims render_dims = this->getButtonDims(text, min_dims, padding);
         SRect centered = centerIn(rect, render_dims);
 
-        this->pushElement(Element::makeButtonElement(
+        Element *element = this->pushElement(Element::makeButtonElement(
             type, centered.ul, centered.dims, padding, text, disabled));
-        return centered;
+
+        return element;
     }
 
     auto getTextDims(StrSlice text, Dims min_dims = {}) -> Dims {
@@ -1159,9 +1268,11 @@ struct Context {
         return render_dims;
     }
 
-    auto pushElement(Element el) -> void {
+    auto pushElement(Element el) -> Element * {
         LLElement *ll = this->arena.pushT(LLElement{el});
         this->el_sentinel.enqueue(ll);
+
+        return &ll->val;
     }
 
     auto getButtonTexture(bool disabled, bool active, bool focus) -> Texture2D {

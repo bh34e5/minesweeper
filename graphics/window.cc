@@ -112,8 +112,9 @@ template <typename T> struct HasMouseButtonCallback {
 };
 
 template <typename T> struct HasRender {
-    template <typename U, typename = decltype(std::declval<U>().render(
-                              std::declval<Window<U> *>()))>
+    template <typename U,
+              typename = decltype(std::declval<U>().render(
+                  std::declval<Window<U> *>(), std::declval<double>()))>
     static std::true_type test(int);
 
     template <typename> static std::false_type test(...);
@@ -208,31 +209,31 @@ template <typename T> struct Window {
 
     auto show() -> void { glfwShowWindow(this->window); }
 
-    auto render() -> void {
+    auto render(double dt_s) -> void {
         if (this->needs_rerender) {
             this->needs_repaint = false;
             this->needs_rerender = false;
-            this->renderNow();
+            this->renderNow(dt_s);
         } else if (this->needs_repaint) {
             this->needs_repaint = false;
-            this->paintNow();
+            this->paintNow(dt_s);
         }
     }
 
-    auto renderNow() -> void {
+    auto renderNow(double dt_s) -> void {
         glClear(GL_COLOR_BUFFER_BIT);
         if constexpr (HasRender<T>::value) {
-            this->ctx.render(this);
+            this->ctx.render(this, dt_s);
         }
         glfwSwapBuffers(this->window);
     }
 
-    auto paintNow() -> void {
+    auto paintNow(double dt_s) -> void {
         glClear(GL_COLOR_BUFFER_BIT);
         if constexpr (HasPaint<T>::value) {
             this->ctx.paint(this);
         } else if constexpr (HasRender<T>::value) {
-            this->ctx.render(this);
+            this->ctx.render(this, dt_s);
         }
         glfwSwapBuffers(this->window);
     }

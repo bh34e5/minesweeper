@@ -26,6 +26,8 @@
 
 #define LEN(arr) (sizeof(arr) / sizeof(*arr))
 
+// local rules {{{1
+// flag_remaining_cells {{{2
 auto flag_remaining_cells(Grid *grid, size_t row, size_t col, void *) -> bool {
     Cell cur = (*grid)[row][col];
     if (cur.display_type != CellDisplayType::cdt_value ||
@@ -67,7 +69,9 @@ auto flag_remaining_cells(Grid *grid, size_t row, size_t col, void *) -> bool {
 
     return false;
 };
+// }}}2
 
+// show_hidden_cells {{{2
 auto show_hidden_cells(Grid *grid, size_t row, size_t col, void *) -> bool {
     Cell cur = (*grid)[row][col];
     if (cur.display_type != CellDisplayType::cdt_value ||
@@ -100,6 +104,8 @@ auto show_hidden_cells(Grid *grid, size_t row, size_t col, void *) -> bool {
 
     return false;
 }
+// }}}2
+// }}}1
 
 auto testGrid() -> void {
     srand(0);
@@ -245,19 +251,24 @@ auto initVBox(VBox *vbox, size_t gap = 0) -> void {
 struct Context {
     typedef Window<Context> ThisWindow;
 
+    // enum Event {{{1
     enum Event {
         et_empty,
         et_mouse_press,
         et_mouse_release,
         et_right_mouse_press,
         et_right_mouse_release,
+        et_animation,
     };
+    // }}}1
 
+    // struct Element {{{1
     struct Element {
         enum Type {
             et_empty,
             et_background,
             et_modal_background,
+            et_lose_flame,
             et_continue_btn,
             et_restart_btn,
             et_empty_grid_cell,
@@ -325,6 +336,7 @@ struct Context {
             return true;
         }
     };
+    // }}}1
 
     typedef LinkedList<Event> LLEvent;
     typedef LinkedList<Element> LLElement;
@@ -341,6 +353,7 @@ struct Context {
 
     Texture2D background;
     Texture2D modal_background;
+    Texture2D lose_flame;
 
     bool mouse_down;
     SLocation down_mouse_pos;
@@ -362,6 +375,10 @@ struct Context {
     bool did_step;
     size_t last_work_rule;
     bool last_step_success;
+
+    bool lose_animation_playing;
+    double lose_animation_t;
+    Location lose_animation_source;
 
     static constexpr Color const TEXT_COLOR = Color::grayscale(50);
     static constexpr Color const DARK_RED = Color{140, 30, 30};
@@ -414,7 +431,7 @@ struct Context {
 
     // build scene {{{1
     // build scene {{{2
-    auto buildScene(ThisWindow *window) -> void {
+    auto buildScene(ThisWindow *window, double dt_s) -> void {
         Dims window_dims = window->getDims();
         size_t w = window_dims.width;
         size_t h = window_dims.height;
@@ -448,7 +465,7 @@ struct Context {
                                                    render_loc, render_dims));
 
         if (this->grid.dims.area() > 0) {
-            this->buildPlayScene(render_rect, grid_rect, solver_rect);
+            this->buildPlayScene(render_rect, grid_rect, solver_rect, dt_s);
         } else if (this->preview_grid) {
             size_t cell_padding = 1;
             size_t r_padding = this->height_input * 2 * cell_padding;
@@ -695,8 +712,8 @@ struct Context {
     // }}}2
 
     // build play scene {{{2
-    auto buildPlayScene(SRect render_rect, SRect grid_rect, SRect solver_rect)
-        -> void {
+    auto buildPlayScene(SRect render_rect, SRect grid_rect, SRect solver_rect,
+                        double dt_s) -> void {
         size_t cell_padding = 1;
         size_t r_padding = this->grid.dims.height * 2 * cell_padding;
         size_t c_padding = this->grid.dims.width * 2 * cell_padding;
@@ -743,7 +760,39 @@ struct Context {
 
         this->buildSolverPane(solver_rect);
 
-        if (gridSolved(this->grid)) {
+        if (this->lose_animation_playing) {
+            Location source = this->lose_animation_source;
+
+            this->lose_animation_t += dt_s;
+            if (this->lose_animation_t > 1.0) {
+                this->lose_animation_playing = false;
+                this->lose_animation_t = 1.0;
+                this->lose_animation_source = {};
+            }
+
+            ssize_t r_pos =
+                source.row * (cell_height + 2 * cell_padding) + cell_padding;
+            ssize_t c_pos =
+                source.col * (cell_width + 2 * cell_padding) + cell_padding;
+
+            SLocation cell_loc{render_rect.ul.row + r_pos,
+                               render_rect.ul.col + c_pos};
+            SRect cell_rect{cell_loc, cell_dims};
+
+            double rect_width =
+                2.0 * render_rect.dims.width * this->lose_animation_t;
+            double rect_height =
+                2.0 * render_rect.dims.height * this->lose_animation_t;
+
+            Dims rect_dims{(size_t)rect_width, (size_t)rect_height};
+            SRect flame_rect = centerIn(cell_rect, rect_dims);
+
+            this->pushElement(Element::makeRectElement(
+                Element::Type::et_lose_flame, flame_rect.ul, flame_rect.dims));
+
+            LLEvent *event = this->arena.pushT<LLEvent>({Event::et_animation});
+            this->ev_sentinel.enqueue(event);
+        } else if (gridSolved(this->grid)) {
             // Show You Win modal and Restart button
 
             this->pushElement(
@@ -877,6 +926,10 @@ struct Context {
                 this->renderQuad(window, SRect{el->val.loc, el->val.dims},
                                  this->modal_background);
             } break;
+            case Element::Type::et_lose_flame: {
+                this->renderQuad(window, SRect{el->val.loc, el->val.dims},
+                                 this->lose_flame);
+            } break;
             case Element::Type::et_empty_grid_cell: {
                 Texture2D texture =
                     this->getButtonTexture(false, is_active, is_focus);
@@ -950,6 +1003,7 @@ struct Context {
         case Element::Type::et_empty:
         case Element::Type::et_background:
         case Element::Type::et_modal_background:
+        case Element::Type::et_lose_flame:
         case Element::Type::et_text: {
             return false;
         } break;
@@ -1002,12 +1056,12 @@ struct Context {
         }
     }
 
-    auto render(ThisWindow *window) -> void {
+    auto render(ThisWindow *window, double dt_s) -> void {
         this->arena.reset(0);
         LLEvent::initSentinel(&this->ev_sentinel);
         LLElement::initSentinel(&this->el_sentinel);
 
-        buildScene(window);
+        buildScene(window, dt_s);
         renderScene(window);
     }
 
@@ -1032,146 +1086,8 @@ struct Context {
                 while ((el = el->prev) != &this->el_sentinel &&
                        keep_processing_elems) {
                     if (el->val.contains(this->down_mouse_pos)) {
-                        switch (el->val.type) {
-                        case Element::Type::et_empty:
-                        case Element::Type::et_background:
-                        case Element::Type::et_modal_background:
-                        case Element::Type::et_revealed_grid_cell:
-                        case Element::Type::et_flagged_grid_cell:
-                        case Element::Type::et_maybe_flagged_grid_cell:
-                        case Element::Type::et_text:
-                            break;
-                        case Element::Type::et_continue_btn: {
-                            keep_processing_elems = false;
-
-                            Location cell_loc = el->val.cell_loc;
-                            this->grid[cell_loc].display_type =
-                                CellDisplayType::cdt_flag;
-
-                            window->needs_rerender = true;
-                        } break;
-                        case Element::Type::et_restart_btn: {
-                            keep_processing_elems = false;
-
-                            // clean up solver
-                            this->solver.resetEpoch(&this->grid);
-
-                            this->grid_arena.reset(0);
-                            this->grid = Grid{};
-
-                            window->needs_rerender = true;
-                        } break;
-                        case Element::Type::et_empty_grid_cell: {
-                            keep_processing_elems = false;
-
-                            if (this->preview_grid) {
-                                printf("Generating grid\n");
-
-                                this->preview_grid = false;
-                                this->grid = generateGrid(
-                                    &this->grid_arena,
-                                    Dims{this->width_input, this->height_input},
-                                    this->mine_input, el->val.cell_loc);
-                            } else {
-                                Cell &cell = this->grid[el->val.cell_loc];
-                                if (cell.type == CellType::ct_mine) {
-                                    // just set the cell as the value and we
-                                    // will render the mine and the "You Lose!"
-                                    // modal based on the fact that this is
-                                    // showing
-                                    cell.display_type =
-                                        CellDisplayType::cdt_value;
-                                } else {
-                                    uncoverSelfAndNeighbors(&this->grid,
-                                                            el->val.cell_loc);
-                                }
-                            }
-                            this->did_step = false;
-                            this->last_work_rule = 0;
-                            this->last_step_success = false;
-
-                            window->needs_rerender = true;
-                        } break;
-                        case Element::Type::et_generate_grid_btn: {
-                            keep_processing_elems = false;
-
-                            printf("Previewing grid\n");
-
-                            this->preview_grid = true;
-                            window->needs_rerender = true;
-                        } break;
-                        case Element::Type::et_step_solver_btn: {
-                            if (el->val.disabled) {
-                                break;
-                            }
-
-                            printf("Stepping solver\n");
-
-                            bool did_work = this->solver.step(&this->grid);
-                            if (did_work) {
-                                printf("Solver did work\n");
-                                this->did_step = true;
-                                this->last_work_rule =
-                                    this->solver.state.last_work_rule;
-                                this->last_step_success = true;
-                            } else {
-                                printf("Solver did not do work\n");
-                                this->did_step = true;
-                                this->last_work_rule = 0;
-                                this->last_step_success = false;
-                            }
-
-                            window->needs_rerender = true;
-                        } break;
-                        case Element::Type::et_width_inc: {
-                            keep_processing_elems = false;
-
-                            if (this->width_input < 99) {
-                                ++this->width_input;
-                                window->needs_rerender = true;
-                            }
-                        } break;
-                        case Element::Type::et_width_dec: {
-                            keep_processing_elems = false;
-
-                            if (this->width_input > 1) {
-                                --this->width_input;
-                                window->needs_rerender = true;
-                            }
-                        } break;
-                        case Element::Type::et_height_inc: {
-                            keep_processing_elems = false;
-
-                            if (this->height_input < 99) {
-                                ++this->height_input;
-                                window->needs_rerender = true;
-                            }
-                        } break;
-                        case Element::Type::et_height_dec: {
-                            keep_processing_elems = false;
-
-                            if (this->height_input > 1) {
-                                --this->height_input;
-                                window->needs_rerender = true;
-                            }
-                        } break;
-                        case Element::Type::et_mine_inc: {
-                            keep_processing_elems = false;
-
-                            if (this->mine_input < 99) {
-                                ++this->mine_input;
-                                window->needs_rerender = true;
-                            }
-                        } break;
-                        case Element::Type::et_mine_dec: {
-                            keep_processing_elems = false;
-
-                            if (this->mine_input > 1) {
-                                --this->mine_input;
-                                window->needs_rerender = true;
-                            }
-                        } break;
-                        }
+                        this->handleLeftClick(window, el,
+                                              &keep_processing_elems);
                     }
                 }
             } break;
@@ -1186,6 +1102,7 @@ struct Context {
                         case Element::Type::et_empty:
                         case Element::Type::et_background:
                         case Element::Type::et_modal_background:
+                        case Element::Type::et_lose_flame:
                         case Element::Type::et_continue_btn:
                         case Element::Type::et_restart_btn:
                         case Element::Type::et_revealed_grid_cell:
@@ -1218,7 +1135,155 @@ struct Context {
                     }
                 }
             } break;
+            case Event::et_animation: {
+                window->needs_rerender = true;
+            } break;
             }
+        }
+    }
+
+    auto handleLeftClick(ThisWindow *window, LinkedList<Element> *el,
+                         bool *keep_processing_elems) -> void {
+        switch (el->val.type) {
+        case Element::Type::et_empty:
+        case Element::Type::et_background:
+        case Element::Type::et_modal_background:
+        case Element::Type::et_lose_flame:
+        case Element::Type::et_revealed_grid_cell:
+        case Element::Type::et_flagged_grid_cell:
+        case Element::Type::et_maybe_flagged_grid_cell:
+        case Element::Type::et_text:
+            break;
+        case Element::Type::et_continue_btn: {
+            *keep_processing_elems = false;
+
+            Location cell_loc = el->val.cell_loc;
+            this->grid[cell_loc].display_type = CellDisplayType::cdt_flag;
+
+            window->needs_rerender = true;
+        } break;
+        case Element::Type::et_restart_btn: {
+            *keep_processing_elems = false;
+
+            // clean up solver
+            this->solver.resetEpoch(&this->grid);
+
+            this->grid_arena.reset(0);
+            this->grid = Grid{};
+
+            window->needs_rerender = true;
+        } break;
+        case Element::Type::et_empty_grid_cell: {
+            *keep_processing_elems = false;
+
+            if (this->preview_grid) {
+                printf("Generating grid\n");
+
+                this->preview_grid = false;
+                this->grid =
+                    generateGrid(&this->grid_arena,
+                                 Dims{this->width_input, this->height_input},
+                                 this->mine_input, el->val.cell_loc);
+            } else {
+                Cell &cell = this->grid[el->val.cell_loc];
+                if (cell.type == CellType::ct_mine) {
+                    // just set the cell as the value and we will render the
+                    // mine and the "You Lose!" modal based on the fact that
+                    // this is showing
+                    cell.display_type = CellDisplayType::cdt_value;
+
+                    this->lose_animation_playing = true;
+                    this->lose_animation_t = 0.0;
+                    this->lose_animation_source = el->val.cell_loc;
+                } else {
+                    uncoverSelfAndNeighbors(&this->grid, el->val.cell_loc);
+                }
+            }
+
+            this->did_step = false;
+            this->last_work_rule = 0;
+            this->last_step_success = false;
+
+            window->needs_rerender = true;
+        } break;
+        case Element::Type::et_generate_grid_btn: {
+            *keep_processing_elems = false;
+
+            printf("Previewing grid\n");
+
+            this->preview_grid = true;
+            window->needs_rerender = true;
+        } break;
+        case Element::Type::et_step_solver_btn: {
+            if (el->val.disabled) {
+                break;
+            }
+
+            printf("Stepping solver\n");
+
+            bool did_work = this->solver.step(&this->grid);
+            if (did_work) {
+                printf("Solver did work\n");
+                this->did_step = true;
+                this->last_work_rule = this->solver.state.last_work_rule;
+                this->last_step_success = true;
+            } else {
+                printf("Solver did not do work\n");
+                this->did_step = true;
+                this->last_work_rule = 0;
+                this->last_step_success = false;
+            }
+
+            window->needs_rerender = true;
+        } break;
+        case Element::Type::et_width_inc: {
+            *keep_processing_elems = false;
+
+            if (this->width_input < 99) {
+                ++this->width_input;
+                window->needs_rerender = true;
+            }
+        } break;
+        case Element::Type::et_width_dec: {
+            *keep_processing_elems = false;
+
+            if (this->width_input > 1) {
+                --this->width_input;
+                window->needs_rerender = true;
+            }
+        } break;
+        case Element::Type::et_height_inc: {
+            *keep_processing_elems = false;
+
+            if (this->height_input < 99) {
+                ++this->height_input;
+                window->needs_rerender = true;
+            }
+        } break;
+        case Element::Type::et_height_dec: {
+            *keep_processing_elems = false;
+
+            if (this->height_input > 1) {
+                --this->height_input;
+                window->needs_rerender = true;
+            }
+        } break;
+        case Element::Type::et_mine_inc: {
+            *keep_processing_elems = false;
+
+            if (this->mine_input < 99) {
+                ++this->mine_input;
+                window->needs_rerender = true;
+            }
+        } break;
+        case Element::Type::et_mine_dec: {
+            *keep_processing_elems = false;
+
+            if (this->mine_input > 1) {
+                --this->mine_input;
+                window->needs_rerender = true;
+            }
+        } break;
         }
     }
 
@@ -1379,6 +1444,7 @@ auto initContext(Arena *arena, Window<Context> *window, Context *ctx) -> void {
     ctx->disabled_button.grayscale(&ctx->arena, 220, Dims{1, 1});
     ctx->background.grayscale(&ctx->arena, 120, Dims{1, 1});
     ctx->modal_background.grayscale(&ctx->arena, 0, 128, Dims{1, 1});
+    ctx->lose_flame.grayscale(&ctx->arena, 255, Dims{1, 1});
 
     LinkedList<Context::Event>::initSentinel(&ctx->ev_sentinel);
     LinkedList<Context::Element>::initSentinel(&ctx->el_sentinel);
@@ -1388,6 +1454,7 @@ auto deinitContext(Context *ctx) -> void {
     deleteBakedFont(&ctx->baked_font);
     deleteQuadProgram(&ctx->quad_program);
 
+    deleteTexture(&ctx->lose_flame);
     deleteTexture(&ctx->modal_background);
     deleteTexture(&ctx->background);
     deleteTexture(&ctx->active_button);
@@ -1415,21 +1482,23 @@ int main() {
 
     double last_time = glfwGetTime();
     while (!window.shouldClose()) {
-        window.render();
-        window.processEvents();
-
         double next_time = glfwGetTime();
-        double delta_time_ms = 1000.0 * (next_time - last_time);
 
-        last_time = next_time;
-
-        if (delta_time_ms < mspf) {
-            unsigned int sleep_time = mspf - delta_time_ms;
-            usleep(sleep_time);
-        }
+        window.render(next_time - last_time);
+        window.processEvents();
 
         if (window.isKeyPressed(GLFW_KEY_Q)) {
             window.close();
+        } else {
+            double frame_time = glfwGetTime();
+            double rest_time_ms = 1000.0 * (frame_time - last_time);
+
+            last_time = next_time;
+
+            if (rest_time_ms < mspf) {
+                unsigned int sleep_time = mspf - rest_time_ms;
+                usleep(sleep_time);
+            }
         }
     }
 

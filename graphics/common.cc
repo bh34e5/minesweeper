@@ -21,13 +21,6 @@ struct Color {
     }
 };
 
-inline auto toGlLoc(size_t val, size_t range) -> GLfloat {
-    double pct = static_cast<double>(val) / static_cast<double>(range);
-    double gl = pct * 2.0 - 1.0;
-
-    return static_cast<GLfloat>(gl);
-}
-
 inline auto toGlLoc(ssize_t val, size_t range) -> GLfloat {
     double pct = static_cast<double>(val) / static_cast<double>(range);
     double gl = pct * 2.0 - 1.0;

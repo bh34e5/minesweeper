@@ -1082,13 +1082,18 @@ struct Context {
             case Event::et_mouse_press: {
                 LLElement *el = &this->el_sentinel;
 
-                bool keep_processing_elems = true;
+                bool input_consumed = false;
                 while ((el = el->prev) != &this->el_sentinel &&
-                       keep_processing_elems) {
+                       !input_consumed) {
                     if (el->val.contains(this->down_mouse_pos)) {
-                        this->handleLeftClick(window, el,
-                                              &keep_processing_elems);
+                        this->handleLeftClick(window, el, &input_consumed);
                     }
+                }
+
+                if (!input_consumed && this->lose_animation_playing) {
+                    this->lose_animation_playing = false;
+                    this->lose_animation_source = {};
+                    this->lose_animation_t = 0.0;
                 }
             } break;
             case Event::et_right_mouse_press: {
@@ -1143,7 +1148,7 @@ struct Context {
     }
 
     auto handleLeftClick(ThisWindow *window, LinkedList<Element> *el,
-                         bool *keep_processing_elems) -> void {
+                         bool *input_consumed) -> void {
         switch (el->val.type) {
         case Element::Type::et_empty:
         case Element::Type::et_background:
@@ -1155,7 +1160,7 @@ struct Context {
         case Element::Type::et_text:
             break;
         case Element::Type::et_continue_btn: {
-            *keep_processing_elems = false;
+            *input_consumed = true;
 
             Location cell_loc = el->val.cell_loc;
             this->grid[cell_loc].display_type = CellDisplayType::cdt_flag;
@@ -1163,7 +1168,7 @@ struct Context {
             window->needs_rerender = true;
         } break;
         case Element::Type::et_restart_btn: {
-            *keep_processing_elems = false;
+            *input_consumed = true;
 
             // clean up solver
             this->solver.resetEpoch(&this->grid);
@@ -1174,7 +1179,7 @@ struct Context {
             window->needs_rerender = true;
         } break;
         case Element::Type::et_empty_grid_cell: {
-            *keep_processing_elems = false;
+            *input_consumed = true;
 
             if (this->preview_grid) {
                 printf("Generating grid\n");
@@ -1207,7 +1212,7 @@ struct Context {
             window->needs_rerender = true;
         } break;
         case Element::Type::et_generate_grid_btn: {
-            *keep_processing_elems = false;
+            *input_consumed = true;
 
             printf("Previewing grid\n");
 
@@ -1237,7 +1242,7 @@ struct Context {
             window->needs_rerender = true;
         } break;
         case Element::Type::et_width_inc: {
-            *keep_processing_elems = false;
+            *input_consumed = true;
 
             if (this->width_input < 99) {
                 ++this->width_input;
@@ -1245,7 +1250,7 @@ struct Context {
             }
         } break;
         case Element::Type::et_width_dec: {
-            *keep_processing_elems = false;
+            *input_consumed = true;
 
             if (this->width_input > 1) {
                 --this->width_input;
@@ -1253,7 +1258,7 @@ struct Context {
             }
         } break;
         case Element::Type::et_height_inc: {
-            *keep_processing_elems = false;
+            *input_consumed = true;
 
             if (this->height_input < 99) {
                 ++this->height_input;
@@ -1261,7 +1266,7 @@ struct Context {
             }
         } break;
         case Element::Type::et_height_dec: {
-            *keep_processing_elems = false;
+            *input_consumed = true;
 
             if (this->height_input > 1) {
                 --this->height_input;
@@ -1269,7 +1274,7 @@ struct Context {
             }
         } break;
         case Element::Type::et_mine_inc: {
-            *keep_processing_elems = false;
+            *input_consumed = true;
 
             if (this->mine_input < 99) {
                 ++this->mine_input;
@@ -1277,7 +1282,7 @@ struct Context {
             }
         } break;
         case Element::Type::et_mine_dec: {
-            *keep_processing_elems = false;
+            *input_consumed = true;
 
             if (this->mine_input > 1) {
                 --this->mine_input;

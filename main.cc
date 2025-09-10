@@ -938,10 +938,19 @@ struct Context {
                                  texture);
             } break;
             case Element::Type::et_revealed_grid_cell: {
-                SRect render_rect{el->val.loc, el->val.dims};
-                this->renderQuad(window, render_rect, this->background);
+                SRect bg_rect{el->val.loc, el->val.dims};
+
+                SLocation render_loc{el->val.loc.row + 1, el->val.loc.col + 1};
+                Dims render_dims{el->val.dims.width - 2,
+                                 el->val.dims.height - 2};
+
+                SRect render_rect{render_loc, render_dims};
 
                 Cell cell = this->grid[el->val.cell_loc];
+
+                this->renderQuad(window, bg_rect, this->button);
+                this->renderQuad(window, render_rect, this->background);
+
                 if (cell.type == CellType::ct_mine) {
                     this->baked_font.setColor(DARK_RED);
                     this->renderCenteredText(window, render_rect,

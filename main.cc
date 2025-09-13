@@ -958,12 +958,12 @@ struct Context {
         switch (type) {
         case Element::Type::et_empty:
         case Element::Type::et_background:
-        case Element::Type::et_modal_background:
         case Element::Type::et_lose_flame:
         case Element::Type::et_text: {
             return false;
         } break;
 
+        case Element::Type::et_modal_background:
         case Element::Type::et_continue_btn:
         case Element::Type::et_restart_btn:
         case Element::Type::et_empty_grid_cell:
@@ -1055,14 +1055,13 @@ struct Context {
             case Event::et_right_mouse_press: {
                 LLElement *el = &this->el_sentinel;
 
-                bool keep_processing_elems = true;
+                bool input_consumed = false;
                 while ((el = el->prev) != &this->el_sentinel &&
-                       keep_processing_elems) {
+                       !input_consumed) {
                     if (el->val.contains(this->down_right_mouse_pos)) {
                         switch (el->val.type) {
                         case Element::Type::et_empty:
                         case Element::Type::et_background:
-                        case Element::Type::et_modal_background:
                         case Element::Type::et_lose_flame:
                         case Element::Type::et_continue_btn:
                         case Element::Type::et_restart_btn:
@@ -1078,15 +1077,18 @@ struct Context {
                         case Element::Type::et_mine_inc:
                         case Element::Type::et_mine_dec:
                             break;
+                        case Element::Type::et_modal_background: {
+                            input_consumed = true;
+                        } break;
                         case Element::Type::et_empty_grid_cell: {
-                            keep_processing_elems = false;
+                            input_consumed = true;
 
                             flagCell(&this->grid, el->val.cell_loc);
 
                             window->needs_rerender = true;
                         } break;
                         case Element::Type::et_flagged_grid_cell: {
-                            keep_processing_elems = false;
+                            input_consumed = true;
 
                             unflagCell(&this->grid, el->val.cell_loc);
 
@@ -1108,13 +1110,15 @@ struct Context {
         switch (el->val.type) {
         case Element::Type::et_empty:
         case Element::Type::et_background:
-        case Element::Type::et_modal_background:
         case Element::Type::et_lose_flame:
         case Element::Type::et_revealed_grid_cell:
         case Element::Type::et_flagged_grid_cell:
         case Element::Type::et_maybe_flagged_grid_cell:
         case Element::Type::et_text:
             break;
+        case Element::Type::et_modal_background: {
+            *input_consumed = true;
+        } break;
         case Element::Type::et_continue_btn: {
             *input_consumed = true;
 

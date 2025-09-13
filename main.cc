@@ -2,6 +2,7 @@
 #include "dirutils.cc"
 #include "graphics/bakedfont.cc"
 #include "graphics/common.cc"
+#include "graphics/containers.cc"
 #include "graphics/gl.cc"
 #include "graphics/quadprogram.cc"
 #include "graphics/texture2d.cc"
@@ -140,112 +141,6 @@ auto testGrid() -> void {
 
 void handle_error(int error, char const *description) {
     fprintf(stderr, "GLFW Error (%d)): %s\n", error, description);
-}
-
-struct HBox {
-    struct LocIterator {
-        LinkedList<Dims> *cur;
-        LinkedList<Dims> *end;
-        SLocation cur_loc;
-        size_t gap;
-        size_t height;
-
-        auto getNext() -> SRect {
-            assert(this->hasNext() && "Invalid iterator");
-
-            Dims cur_dims = this->cur->val;
-            SLocation cur_loc = this->cur_loc;
-
-            this->cur = this->cur->next;
-            this->cur_loc.col += cur_dims.width + this->gap;
-
-            return SRect{cur_loc, Dims{cur_dims.width, this->height}};
-        }
-
-        auto hasNext() -> bool { return cur != end; }
-    };
-
-    size_t gap;
-    Dims total_dims;
-    LinkedList<Dims> items_sentinel;
-
-    auto pushItem(Arena *arena, Dims dims) -> void {
-        LinkedList<Dims> *element = arena->pushT<LinkedList<Dims>>({dims});
-
-        if (!LinkedList<Dims>::isEmpty(&this->items_sentinel)) {
-            this->total_dims.width += this->gap;
-        }
-        this->total_dims.width += dims.width;
-
-        if (this->total_dims.height < dims.height) {
-            this->total_dims.height = dims.height;
-        }
-
-        this->items_sentinel.enqueue(element);
-    }
-
-    auto itemsIterator(SLocation base) -> LocIterator {
-        return LocIterator{this->items_sentinel.next, &this->items_sentinel,
-                           base, this->gap, this->total_dims.height};
-    }
-};
-
-auto initHBox(HBox *hbox, size_t gap = 0) -> void {
-    *hbox = HBox{gap};
-    LinkedList<Dims>::initSentinel(&hbox->items_sentinel);
-}
-
-struct VBox {
-    struct LocIterator {
-        LinkedList<Dims> *cur;
-        LinkedList<Dims> *end;
-        SLocation cur_loc;
-        size_t gap;
-        size_t width;
-
-        auto getNext() -> SRect {
-            assert(this->hasNext() && "Invalid iterator");
-
-            Dims cur_dims = this->cur->val;
-            SLocation cur_loc = this->cur_loc;
-
-            this->cur = this->cur->next;
-            this->cur_loc.row += cur_dims.height + this->gap;
-
-            return SRect{cur_loc, Dims{this->width, cur_dims.height}};
-        }
-
-        auto hasNext() -> bool { return cur != end; }
-    };
-
-    size_t gap;
-    Dims total_dims;
-    LinkedList<Dims> items_sentinel;
-
-    auto pushItem(Arena *arena, Dims dims) -> void {
-        LinkedList<Dims> *element = arena->pushT<LinkedList<Dims>>({dims});
-
-        if (!LinkedList<Dims>::isEmpty(&this->items_sentinel)) {
-            this->total_dims.height += this->gap;
-        }
-        this->total_dims.height += dims.height;
-
-        if (this->total_dims.width < dims.width) {
-            this->total_dims.width = dims.width;
-        }
-
-        this->items_sentinel.enqueue(element);
-    }
-
-    auto itemsIterator(SLocation base) -> LocIterator {
-        return LocIterator{this->items_sentinel.next, &this->items_sentinel,
-                           base, this->gap, this->total_dims.width};
-    }
-};
-
-auto initVBox(VBox *vbox, size_t gap = 0) -> void {
-    *vbox = VBox{gap};
-    LinkedList<Dims>::initSentinel(&vbox->items_sentinel);
 }
 
 struct Context {
@@ -446,60 +341,97 @@ struct Context {
 
         SRect render_rect{render_loc, render_dims};
 
-        ssize_t factor = 5; // must be > 1
-        ssize_t solver_width =
-            clamp<size_t>(250, render_dims.width / factor, 800);
-
-        Dims grid_dims{(size_t)(render_dims.width - solver_width),
-                       render_dims.height};
-        SRect grid_rect = {render_loc, grid_dims};
-
-        SLocation solver_loc{
-            render_loc.row,
-            render_loc.col + (ssize_t)(render_dims.width - solver_width),
-        };
-        Dims solver_dims{(size_t)solver_width, render_dims.height};
-        SRect solver_rect{solver_loc, solver_dims};
-
         this->pushElement(Element::makeRectElement(Element::Type::et_background,
                                                    render_loc, render_dims));
 
-        if (this->grid.dims.area() > 0) {
-            this->buildPlayScene(render_rect, grid_rect, solver_rect, dt_s);
-        } else if (this->preview_grid) {
-            size_t cell_padding = 1;
-            size_t r_padding = this->height_input * 2 * cell_padding;
-            size_t c_padding = this->width_input * 2 * cell_padding;
-
-            size_t cell_width =
-                (grid_dims.width - c_padding) / this->width_input;
-            size_t cell_height =
-                (grid_dims.height - r_padding) / this->height_input;
-
-            Dims cell_dims{cell_width, cell_height};
-
-            for (size_t r = 0; r < this->height_input; ++r) {
-                ssize_t r_pos =
-                    r * (cell_height + 2 * cell_padding) + cell_padding;
-
-                for (size_t c = 0; c < this->width_input; ++c) {
-                    ssize_t c_pos =
-                        c * (cell_width + 2 * cell_padding) + cell_padding;
-
-                    SLocation cell_loc{render_loc.row + r_pos,
-                                       render_loc.col + c_pos};
-
-                    this->pushElement(Element::makeCellElement(
-                        Element::Type::et_empty_grid_cell, cell_loc, cell_dims,
-                        Location{r, c}));
-                }
-            }
-
-            this->buildSolverPane(solver_rect);
+        if (this->preview_grid || this->grid.dims.area() > 0) {
+            this->buildPlayScene(render_rect, dt_s);
         } else {
             this->buildGenerateScene(render_dims);
         }
     }
+    // }}}2
+
+    // build grid {{{2
+    // build game grid {{{3
+    auto buildGameGrid(SRect grid_rect, Dims cell_dims, size_t cell_padding)
+        -> void {
+        for (size_t r = 0; r < this->grid.dims.height; ++r) {
+            ssize_t r_pos =
+                r * (cell_dims.height + 2 * cell_padding) + cell_padding;
+
+            for (size_t c = 0; c < this->grid.dims.width; ++c) {
+                ssize_t c_pos =
+                    c * (cell_dims.width + 2 * cell_padding) + cell_padding;
+
+                SLocation cell_loc{grid_rect.ul.row + r_pos,
+                                   grid_rect.ul.col + c_pos};
+
+                Cell &cell = this->grid[r][c];
+
+                Element::Type et = Element::Type::et_empty;
+                switch (cell.display_type) {
+                case CellDisplayType::cdt_hidden: {
+                    et = Element::Type::et_empty_grid_cell;
+                } break;
+                case CellDisplayType::cdt_value: {
+                    et = Element::Type::et_revealed_grid_cell;
+                } break;
+                case CellDisplayType::cdt_flag: {
+                    et = Element::Type::et_flagged_grid_cell;
+                } break;
+                case CellDisplayType::cdt_maybe_flag: {
+                    et = Element::Type::et_maybe_flagged_grid_cell;
+                } break;
+                }
+
+                this->pushElement(Element::makeCellElement(
+                    et, cell_loc, cell_dims, Location{r, c}));
+            }
+        }
+    }
+    // }}}3
+
+    // build preview grid {{{3
+    auto buildPreviewGrid(SRect grid_rect, Dims cell_dims, size_t cell_padding)
+        -> void {
+        for (size_t r = 0; r < this->height_input; ++r) {
+            ssize_t r_pos =
+                r * (cell_dims.height + 2 * cell_padding) + cell_padding;
+
+            for (size_t c = 0; c < this->width_input; ++c) {
+                ssize_t c_pos =
+                    c * (cell_dims.width + 2 * cell_padding) + cell_padding;
+
+                SLocation cell_loc{grid_rect.ul.row + r_pos,
+                                   grid_rect.ul.col + c_pos};
+
+                this->pushElement(Element::makeCellElement(
+                    Element::Type::et_empty_grid_cell, cell_loc, cell_dims,
+                    Location{r, c}));
+            }
+        }
+    }
+    // }}}3
+
+    // get cell dims {{{3
+    auto getGameCellDims(SRect grid_rect, size_t cell_padding) -> Dims {
+        Dims grid_dims = this->preview_grid
+                             ? Dims{this->width_input, this->height_input}
+                             : this->grid.dims;
+
+        size_t r_padding = grid_dims.height * 2 * cell_padding;
+        size_t c_padding = grid_dims.width * 2 * cell_padding;
+
+        size_t cell_width =
+            (grid_rect.dims.width - c_padding) / grid_dims.width;
+        size_t cell_height =
+            (grid_rect.dims.height - r_padding) / grid_dims.height;
+
+        Dims cell_dims{cell_width, cell_height};
+        return cell_dims;
+    }
+    // }}}3
     // }}}2
 
     // build solver pane {{{2
@@ -510,9 +442,9 @@ struct Context {
 
         Dims padding{5, 5};
 
-        // FIXME(bhester): wherever I use 15, it's likely an implicit reference
+        // FIXME(bhester): wherever I use 20, it's likely an implicit reference
         // to pixel_height, so I think I want to get a constant somewhere...
-        Dims min_used_dims{15, 15};
+        Dims min_used_dims{20, 20};
         Dims rule_used_dims =
             this->getLineHeightTextDims(rule_used_slice, min_used_dims);
 
@@ -593,7 +525,7 @@ struct Context {
     auto buildGenerateScene(Dims render_dims) -> void {
         SRect render_rect{SLocation{0, 0}, render_dims};
 
-        ssize_t inc_dec_dim = 15;
+        ssize_t inc_dec_dim = 20;
         Dims inc_dec_dims{(size_t)inc_dec_dim, (size_t)inc_dec_dim};
 
         StrSlice dec_slice = STR_SLICE("-");
@@ -712,53 +644,68 @@ struct Context {
     // }}}2
 
     // build play scene {{{2
-    auto buildPlayScene(SRect render_rect, SRect grid_rect, SRect solver_rect,
-                        double dt_s) -> void {
-        size_t cell_padding = 1;
-        size_t r_padding = this->grid.dims.height * 2 * cell_padding;
-        size_t c_padding = this->grid.dims.width * 2 * cell_padding;
+    auto buildPlayScene(SRect render_rect, double dt_s) -> void {
+        VBox game_box{};
+        initVBox(&game_box);
 
-        size_t cell_width =
-            (grid_rect.dims.width - c_padding) / this->grid.dims.width;
-        size_t cell_height =
-            (grid_rect.dims.height - r_padding) / this->grid.dims.height;
+        HBox grid_solver_box{};
+        initHBox(&grid_solver_box);
 
-        Dims cell_dims{cell_width, cell_height};
+        long remaining_flags = this->preview_grid
+                                   ? this->mine_input
+                                   : this->solver.getRemainingFlags(this->grid);
 
-        for (size_t r = 0; r < this->grid.dims.height; ++r) {
-            ssize_t r_pos = r * (cell_height + 2 * cell_padding) + cell_padding;
+        size_t mine_len = 12 + 1; // "Mines: (-)dddd" + null
+        char *mines_label = this->arena.pushTN<char>(mine_len);
+        StrSlice mine_slice =
+            sliceNPrintf(mines_label, mine_len, "Mines: %ld", remaining_flags);
 
-            for (size_t c = 0; c < this->grid.dims.width; ++c) {
-                ssize_t c_pos =
-                    c * (cell_width + 2 * cell_padding) + cell_padding;
+        Dims mine_label_dims = this->getTextDims(mine_slice, Dims{0, 20});
 
-                SLocation cell_loc{render_rect.ul.row + r_pos,
-                                   render_rect.ul.col + c_pos};
+        size_t factor = 5; // must be > 1
+        size_t solver_width =
+            clamp<size_t>(250, render_rect.dims.width / factor, 800);
 
-                Cell &cell = this->grid[r][c];
+        Dims grid_dims{render_rect.dims.width - solver_width,
+                       render_rect.dims.height - mine_label_dims.height};
+        Dims solver_dims{solver_width,
+                         render_rect.dims.height - mine_label_dims.height};
 
-                Element::Type et = Element::Type::et_empty;
-                switch (cell.display_type) {
-                case CellDisplayType::cdt_hidden: {
-                    et = Element::Type::et_empty_grid_cell;
-                } break;
-                case CellDisplayType::cdt_value: {
-                    et = Element::Type::et_revealed_grid_cell;
-                } break;
-                case CellDisplayType::cdt_flag: {
-                    et = Element::Type::et_flagged_grid_cell;
-                } break;
-                case CellDisplayType::cdt_maybe_flag: {
-                    et = Element::Type::et_maybe_flagged_grid_cell;
-                } break;
-                }
+        grid_solver_box.pushItem(&this->arena, grid_dims);
+        grid_solver_box.pushItem(&this->arena, solver_dims);
 
-                this->pushElement(Element::makeCellElement(
-                    et, cell_loc, cell_dims, Location{r, c}));
-            }
-        }
+        game_box.pushItem(&this->arena, mine_label_dims);
+        game_box.pushItem(&this->arena, grid_solver_box.total_dims);
 
+        VBox::LocIterator game_box_it = game_box.itemsIterator(render_rect.ul);
+
+        SRect mine_label_rect = game_box_it.getNext();
+        SRect grid_solver_rect = game_box_it.getNext();
+
+        assert(!game_box_it.hasNext());
+
+        HBox::LocIterator grid_solver_box_it =
+            grid_solver_box.itemsIterator(grid_solver_rect.ul);
+
+        SRect grid_rect = grid_solver_box_it.getNext();
+        SRect solver_rect = grid_solver_box_it.getNext();
+
+        assert(!grid_solver_box_it.hasNext());
+
+        this->pushElement(Element::makeTextElement(Element::Type::et_text,
+                                                   mine_label_rect.ul,
+                                                   mine_slice, TEXT_COLOR));
         this->buildSolverPane(solver_rect);
+
+        size_t cell_padding = 1;
+        Dims cell_dims = this->getGameCellDims(grid_rect, cell_padding);
+
+        if (this->preview_grid) {
+            this->buildPreviewGrid(grid_rect, cell_dims, cell_padding);
+            return;
+        } else {
+            this->buildGameGrid(grid_rect, cell_dims, cell_padding);
+        }
 
         if (this->lose_animation_playing) {
             Location source = this->lose_animation_source;
@@ -770,10 +717,10 @@ struct Context {
                 this->lose_animation_source = {};
             }
 
-            ssize_t r_pos =
-                source.row * (cell_height + 2 * cell_padding) + cell_padding;
-            ssize_t c_pos =
-                source.col * (cell_width + 2 * cell_padding) + cell_padding;
+            ssize_t r_pos = source.row * (cell_dims.height + 2 * cell_padding) +
+                            cell_padding;
+            ssize_t c_pos = source.col * (cell_dims.width + 2 * cell_padding) +
+                            cell_padding;
 
             SLocation cell_loc{render_rect.ul.row + r_pos,
                                render_rect.ul.col + c_pos};
@@ -1433,7 +1380,7 @@ auto initContext(Arena *arena, Window<Context> *window, Context *ctx) -> void {
 
     ctx->quad_program = window->makeBaseQuadProgram(&ctx->arena);
     ctx->baked_font =
-        window->makeBaseBakedFont(&ctx->arena, "./fonts/Roboto-Black.ttf", 15);
+        window->makeBaseBakedFont(&ctx->arena, "./fonts/Roboto-Black.ttf", 20);
 
     ctx->button = makeTexture();
     ctx->disabled_button = makeTexture();

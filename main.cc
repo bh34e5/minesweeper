@@ -190,6 +190,7 @@ struct Context {
             et_height_dec,
             et_mine_inc,
             et_mine_dec,
+            et_generate_solvable_cbox,
             et_generate_grid_btn,
             et_step_solver_btn,
             et_text,
@@ -202,47 +203,45 @@ struct Context {
         StrSlice text;
         Color color;
         Location cell_loc;
+        bool checked;
         bool disabled;
 
         static auto makeRectElement(Type type, SLocation loc, Dims dims)
             -> Element {
-            return Element{type, loc, dims, {}, {}, {}, {}, {}};
+            return Element{type, loc, dims, {}, {}, {}, {}, {}, {}};
         }
 
         static auto makeTextElement(Type type, SLocation loc, StrSlice text,
                                     Color color) -> Element {
-            return Element{type, loc, {}, {}, text, color, {}, {}};
+            return Element{type, loc, {}, {}, text, color, {}, {}, {}};
         }
 
         static auto makeCellElement(Type type, SLocation loc, Dims dims,
                                     Location cell_loc) -> Element {
-            return Element{type, loc, dims, {}, {}, {}, cell_loc, {}};
+            return Element{type, loc, dims, {}, {}, {}, cell_loc, {}, {}};
         }
 
         static auto makeButtonElement(Type type, SLocation loc, Dims dims,
                                       Dims padding, StrSlice text,
                                       bool disabled) -> Element {
-            return Element{type, loc, dims, padding, text, {}, {}, disabled};
+            return Element{type, loc, dims, padding, text,
+                           {},   {},  {},   disabled};
+        }
+
+        static auto makeCheckboxElement(Type type, SLocation loc,
+                                        StrSlice label, bool checked)
+            -> Element {
+            return Element{type, loc, {}, {}, label, {}, {}, checked, {}};
         }
 
         auto contains(SLocation loc) -> bool {
-            if (loc.row < this->loc.row) {
-                return false;
-            }
-            if (loc.col < this->loc.col) {
-                return false;
+            if (this->dims.area() == 0) {
+                // if we don't specify dims, we will check separate bounds
+                return true;
             }
 
-            ssize_t bottom_row = this->loc.row + this->dims.height;
-            ssize_t right_col = this->loc.col + this->dims.width;
-
-            if (loc.row > bottom_row) {
-                return false;
-            }
-            if (loc.col > right_col) {
-                return false;
-            }
-            return true;
+            SRect this_rect{this->loc, this->dims};
+            return this_rect.contains(loc);
         }
     };
     // }}}1
@@ -261,6 +260,7 @@ struct Context {
     Texture2D active_button;
 
     Texture2D background;
+    Texture2D border;
     Texture2D modal_background;
     Texture2D lose_flame;
 
@@ -276,6 +276,7 @@ struct Context {
     size_t width_input;
     size_t height_input;
     size_t mine_input;
+    bool generate_solvable_grid;
 
     Arena grid_arena;
     Grid grid;
@@ -368,6 +369,8 @@ struct Context {
 
     // build play scene {{{2
     auto buildPlayScene(SRect render_rect, double dt_s) -> void {
+        StrSlice gen_solvable_slice = STR_SLICE("Generate Solvable Grid");
+
         VBox game_box{};
         initVBox(&game_box, 0, render_rect.dims.height);
 
@@ -392,11 +395,14 @@ struct Context {
         grid_solver_box.pushItem(&this->arena, Dims{}, 1);
         grid_solver_box.pushItem(&this->arena, Dims{solver_width, 0});
 
+        game_box.pushItem(&this->arena,
+                          this->getCheckboxDims(gen_solvable_slice));
         game_box.pushItem(&this->arena, mine_label_dims);
         game_box.pushItem(&this->arena, grid_solver_box.getDims(), 1);
 
         VBox::LocIterator game_box_it = game_box.itemsIterator(render_rect.ul);
 
+        SRect gen_solvable_rect = game_box_it.getNext();
         SRect mine_label_rect = game_box_it.getNext();
         SRect grid_solver_rect = game_box_it.getNext();
 
@@ -410,6 +416,9 @@ struct Context {
 
         assert(!grid_solver_box_it.hasNext());
 
+        this->pushElement(Element::makeCheckboxElement(
+            Element::Type::et_generate_solvable_cbox, gen_solvable_rect.ul,
+            gen_solvable_slice, this->generate_solvable_grid));
         this->pushElement(Element::makeTextElement(Element::Type::et_text,
                                                    mine_label_rect.ul,
                                                    mine_slice, TEXT_COLOR));
@@ -943,6 +952,25 @@ struct Context {
                 this->baked_font.setColor(el->val.color);
                 this->renderText(window, el->val.loc, el->val.text);
             } break;
+            case Element::Type::et_generate_solvable_cbox: {
+                SRect padded_box_rect{el->val.loc, Dims{20, 20}};
+                SRect inner_box_rect = centerIn(padded_box_rect, Dims{18, 18});
+
+                this->renderQuad(window, padded_box_rect, this->border);
+                this->renderQuad(window, inner_box_rect, this->button);
+                if (el->val.checked) {
+                    this->baked_font.setColor(TEXT_COLOR);
+                    this->renderCenteredText(window, inner_box_rect,
+                                             STR_SLICE("X"));
+                }
+
+                SLocation text_loc{el->val.loc.row,
+                                   el->val.loc.col +
+                                       (ssize_t)padded_box_rect.dims.width};
+
+                this->baked_font.setColor(TEXT_COLOR);
+                this->renderText(window, text_loc, el->val.text);
+            } break;
             case Element::Type::et_continue_btn:
             case Element::Type::et_restart_btn:
             case Element::Type::et_generate_grid_btn:
@@ -985,6 +1013,7 @@ struct Context {
         case Element::Type::et_height_dec:
         case Element::Type::et_mine_inc:
         case Element::Type::et_mine_dec:
+        case Element::Type::et_generate_solvable_cbox:
         case Element::Type::et_generate_grid_btn:
         case Element::Type::et_step_solver_btn: {
             return true;
@@ -1051,7 +1080,8 @@ struct Context {
                 while ((el = el->prev) != &this->el_sentinel &&
                        !input_consumed) {
                     if (el->val.contains(this->down_mouse_pos)) {
-                        this->handleLeftClick(window, el, &input_consumed);
+                        this->handleLeftClick(window, el, this->down_mouse_pos,
+                                              &input_consumed);
                     }
                 }
 
@@ -1077,6 +1107,7 @@ struct Context {
                         case Element::Type::et_revealed_grid_cell:
                         case Element::Type::et_maybe_flagged_grid_cell:
                         case Element::Type::et_text:
+                        case Element::Type::et_generate_solvable_cbox:
                         case Element::Type::et_generate_grid_btn:
                         case Element::Type::et_step_solver_btn:
                         case Element::Type::et_width_inc:
@@ -1115,7 +1146,7 @@ struct Context {
     }
 
     auto handleLeftClick(ThisWindow *window, LinkedList<Element> *el,
-                         bool *input_consumed) -> void {
+                         SLocation click_loc, bool *input_consumed) -> void {
         switch (el->val.type) {
         case Element::Type::et_empty:
         case Element::Type::et_background:
@@ -1153,11 +1184,34 @@ struct Context {
             if (this->preview_grid) {
                 printf("Generating grid\n");
 
+                Dims grid_dims{this->width_input, this->height_input};
+
                 this->preview_grid = false;
-                this->grid =
-                    generateGrid(&this->grid_arena,
-                                 Dims{this->width_input, this->height_input},
-                                 this->mine_input, el->val.cell_loc);
+                this->grid = generateGrid(&this->grid_arena, grid_dims,
+                                          this->mine_input, el->val.cell_loc);
+
+                // NOTE(bhester): this hangs the UI as well if it cannot
+                // generate a solvable grid
+                if (this->generate_solvable_grid) {
+                    while (true) {
+                        bool solvable = this->solver.solvable(&this->grid);
+                        this->solver.reset(&this->grid);
+                        resetGrid(&this->grid);
+
+                        if (solvable) {
+                            // the reset grid above cleared this
+                            uncoverSelfAndNeighbors(&this->grid,
+                                                    el->val.cell_loc);
+
+                            break;
+                        }
+
+                        this->grid_arena.reset(0);
+                        this->grid =
+                            generateGrid(&this->grid_arena, grid_dims,
+                                         this->mine_input, el->val.cell_loc);
+                    }
+                }
             } else {
                 Cell &cell = this->grid[el->val.cell_loc];
                 if (cell.type == CellType::ct_mine) {
@@ -1254,6 +1308,15 @@ struct Context {
                 window->needs_rerender = true;
             }
         } break;
+        case Element::Type::et_generate_solvable_cbox: {
+            SRect box_rect{el->val.loc, this->getCheckboxDims(el->val.text)};
+            if (box_rect.contains(click_loc)) {
+                *input_consumed = true;
+
+                this->generate_solvable_grid = !this->generate_solvable_grid;
+                window->needs_rerender = true;
+            }
+        } break;
         }
     }
 
@@ -1301,6 +1364,18 @@ struct Context {
         }
 
         return render_dims;
+    }
+
+    auto getCheckboxDims(StrSlice label, Dims min_dims = {}) -> Dims {
+        Dims text_dims = this->getTextDims(label, min_dims);
+
+        Dims dims{20, 20};
+        dims.width += text_dims.width;
+        if (dims.height < text_dims.height) {
+            dims.height = text_dims.height;
+        }
+
+        return dims;
     }
 
     auto pushElement(Element el) -> Element * {
@@ -1399,11 +1474,13 @@ auto initContext(Arena *arena, Window<Context> *window, Context *ctx) -> void {
     ctx->focus_button = makeTexture();
     ctx->active_button = makeTexture();
     ctx->background = makeTexture();
+    ctx->border = makeTexture();
     ctx->modal_background = makeTexture();
 
     ctx->width_input = 10;
     ctx->height_input = 10;
     ctx->mine_input = 15;
+    ctx->generate_solvable_grid = true;
 
     ctx->did_step = false;
     ctx->last_work_rule = 0;
@@ -1416,6 +1493,7 @@ auto initContext(Arena *arena, Window<Context> *window, Context *ctx) -> void {
     ctx->active_button.grayscale(&ctx->arena, 160, Dims{1, 1});
     ctx->disabled_button.grayscale(&ctx->arena, 220, Dims{1, 1});
     ctx->background.grayscale(&ctx->arena, 120, Dims{1, 1});
+    ctx->border.grayscale(&ctx->arena, 20, Dims{1, 1});
     ctx->modal_background.grayscale(&ctx->arena, 0, 128, Dims{1, 1});
     ctx->lose_flame.grayscale(&ctx->arena, 255, Dims{1, 1});
 
@@ -1429,6 +1507,7 @@ auto deinitContext(Context *ctx) -> void {
 
     deleteTexture(&ctx->lose_flame);
     deleteTexture(&ctx->modal_background);
+    deleteTexture(&ctx->border);
     deleteTexture(&ctx->background);
     deleteTexture(&ctx->active_button);
     deleteTexture(&ctx->focus_button);

@@ -163,6 +163,26 @@ struct SRect {
         ssize_t bottom_row = this->ul.row + this->dims.height;
         return SLocation{bottom_row, right_col};
     }
+
+    auto contains(SLocation loc) -> bool {
+        if (loc.row < this->ul.row) {
+            return false;
+        }
+        if (loc.col < this->ul.col) {
+            return false;
+        }
+
+        SLocation br = this->br();
+
+        if (loc.row > br.row) {
+            return false;
+        }
+        if (loc.col > br.col) {
+            return false;
+        }
+
+        return true;
+    }
 };
 
 struct Rect {

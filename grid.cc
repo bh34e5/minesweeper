@@ -147,6 +147,23 @@ auto unflagCell(Grid *grid, Cell *cell) -> void {
     unflagCell(grid, cell_loc);
 }
 
+auto resetGrid(Grid *grid) -> void {
+    for (auto &cell : grid->cells) {
+        switch (cell.display_type) {
+        case cdt_flag: {
+            unflagCell(grid, &cell);
+        } break;
+        case cdt_value:
+        case cdt_maybe_flag: {
+            cell.display_type = CellDisplayType::cdt_hidden;
+        } break;
+        case cdt_hidden: {
+            // already hidden, do nothing
+        } break;
+        }
+    }
+}
+
 auto uncoverSelfAndNeighbors(Grid *grid, Location loc) -> void {
     Cell &cell = (*grid)[loc];
     if (cell.display_type != CellDisplayType::cdt_hidden) {

@@ -157,6 +157,7 @@ struct GridSolver {
     }
 
     auto solvable(Grid *grid) -> bool {
+        this->reset(grid);
         while (this->step(grid))
             ;
 

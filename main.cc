@@ -352,6 +352,207 @@ struct Context {
     }
     // }}}2
 
+    // build play scene {{{2
+    auto buildPlayScene(SRect render_rect, double dt_s) -> void {
+        VBox game_box{};
+        initVBox(&game_box, 0, render_rect.dims.height);
+
+        HBox grid_solver_box{};
+        initHBox(&grid_solver_box, 0, render_rect.dims.width);
+
+        long remaining_flags = this->preview_grid
+                                   ? this->mine_input
+                                   : this->solver.getRemainingFlags(this->grid);
+
+        size_t mine_len = 12 + 1; // "Mines: (-)dddd" + null
+        char *mines_label = this->arena.pushTN<char>(mine_len);
+        StrSlice mine_slice =
+            sliceNPrintf(mines_label, mine_len, "Mines: %ld", remaining_flags);
+
+        Dims mine_label_dims = this->getTextDims(mine_slice, Dims{0, 20});
+
+        size_t factor = 5; // must be > 1
+        size_t solver_width =
+            clamp<size_t>(250, render_rect.dims.width / factor, 800);
+
+        grid_solver_box.pushItem(&this->arena, Dims{}, 1);
+        grid_solver_box.pushItem(&this->arena, Dims{solver_width, 0});
+
+        game_box.pushItem(&this->arena, mine_label_dims);
+        game_box.pushItem(&this->arena, grid_solver_box.getDims(), 1);
+
+        VBox::LocIterator game_box_it = game_box.itemsIterator(render_rect.ul);
+
+        SRect mine_label_rect = game_box_it.getNext();
+        SRect grid_solver_rect = game_box_it.getNext();
+
+        assert(!game_box_it.hasNext());
+
+        HBox::LocIterator grid_solver_box_it = grid_solver_box.itemsIterator(
+            grid_solver_rect.ul, grid_solver_rect.dims.height);
+
+        SRect grid_rect = grid_solver_box_it.getNext();
+        SRect solver_rect = grid_solver_box_it.getNext();
+
+        assert(!grid_solver_box_it.hasNext());
+
+        this->pushElement(Element::makeTextElement(Element::Type::et_text,
+                                                   mine_label_rect.ul,
+                                                   mine_slice, TEXT_COLOR));
+        this->buildSolverPane(solver_rect);
+
+        size_t cell_padding = 1;
+        Dims cell_dims = this->getGameCellDims(grid_rect, cell_padding);
+
+        if (this->preview_grid) {
+            this->buildPreviewGrid(grid_rect, cell_dims, cell_padding);
+            return;
+        } else {
+            this->buildGameGrid(grid_rect, cell_dims, cell_padding);
+        }
+
+        if (this->lose_animation_playing) {
+            Location source = this->lose_animation_source;
+
+            this->lose_animation_t += dt_s;
+            if (this->lose_animation_t > 1.0) {
+                this->lose_animation_playing = false;
+                this->lose_animation_t = 1.0;
+                this->lose_animation_source = {};
+            }
+
+            ssize_t r_pos = source.row * (cell_dims.height + 2 * cell_padding) +
+                            cell_padding;
+            ssize_t c_pos = source.col * (cell_dims.width + 2 * cell_padding) +
+                            cell_padding;
+
+            SLocation cell_loc{render_rect.ul.row + r_pos,
+                               render_rect.ul.col + c_pos};
+            SRect cell_rect{cell_loc, cell_dims};
+
+            double rect_width =
+                2.0 * render_rect.dims.width * this->lose_animation_t;
+            double rect_height =
+                2.0 * render_rect.dims.height * this->lose_animation_t;
+
+            Dims rect_dims{(size_t)rect_width, (size_t)rect_height};
+            SRect flame_rect = centerIn(cell_rect, rect_dims);
+
+            this->pushElement(Element::makeRectElement(
+                Element::Type::et_lose_flame, flame_rect.ul, flame_rect.dims));
+
+            LLEvent *event = this->arena.pushT<LLEvent>({Event::et_animation});
+            this->ev_sentinel.enqueue(event);
+        } else if (gridSolved(this->grid)) {
+            // Show You Win modal and Restart button
+
+            this->pushElement(
+                Element::makeRectElement(Element::Type::et_modal_background,
+                                         render_rect.ul, render_rect.dims));
+
+            StrSlice you_win_slice = STR_SLICE("You Win!");
+            StrSlice restart_slice = STR_SLICE("Restart");
+
+            Dims button_padding{10, 10};
+            Dims button_dims =
+                this->getButtonDims(restart_slice, {}, button_padding);
+
+            VBox box{};
+            initVBox(&box, 10);
+
+            box.pushItem(&this->arena, this->getTextDims(you_win_slice));
+            box.pushItem(&this->arena, button_dims);
+            SRect base_rect = centerIn(render_rect, box.getDims());
+
+            Dims min_modal_dims{render_rect.dims.width / 3,
+                                render_rect.dims.height / 3};
+
+            Dims modal_dims = expandToMin(min_modal_dims, base_rect.dims);
+            SLocation modal_loc = centerIn(render_rect, modal_dims).ul;
+
+            this->pushElement(Element::makeRectElement(
+                Element::Type::et_background, modal_loc, modal_dims));
+
+            VBox::LocIterator vbox_it = box.itemsIterator(base_rect.ul);
+
+            this->pushElement(Element::makeTextElement(
+                Element::Type::et_text, vbox_it.getNext().ul, you_win_slice,
+                TEXT_COLOR));
+
+            SRect button_rect = vbox_it.getNext();
+            this->pushButtonAt(Element::Type::et_restart_btn,
+                               centerIn(button_rect, button_dims).ul,
+                               restart_slice, {}, button_padding);
+
+            assert(!vbox_it.hasNext());
+        } else if (gridLost(this->grid)) {
+            // Show You Lose modal, Continue, and Restart buttons
+
+            this->pushElement(
+                Element::makeRectElement(Element::Type::et_modal_background,
+                                         render_rect.ul, render_rect.dims));
+
+            StrSlice you_lose_slice = STR_SLICE("You Lose!");
+            StrSlice continue_slice = STR_SLICE("Continue");
+            StrSlice restart_slice = STR_SLICE("Restart");
+
+            Dims button_padding{10, 10};
+            Dims continue_button_dims =
+                this->getButtonDims(continue_slice, {}, button_padding);
+            Dims restart_button_dims =
+                this->getButtonDims(restart_slice, {}, button_padding);
+
+            VBox box{};
+            initVBox(&box, 10);
+
+            HBox button_box{};
+            initHBox(&button_box, 10);
+
+            button_box.pushItem(&this->arena, continue_button_dims);
+            button_box.pushItem(&this->arena, restart_button_dims);
+
+            box.pushItem(&this->arena, this->getTextDims(you_lose_slice));
+            box.pushItem(&this->arena, button_box.getDims());
+            SRect base_rect = centerIn(render_rect, box.getDims());
+
+            Dims min_modal_dims{render_rect.dims.width / 3,
+                                render_rect.dims.height / 3};
+
+            Dims modal_dims = expandToMin(min_modal_dims, base_rect.dims);
+            SLocation modal_loc = centerIn(render_rect, modal_dims).ul;
+
+            this->pushElement(Element::makeRectElement(
+                Element::Type::et_background, modal_loc, modal_dims));
+
+            VBox::LocIterator vbox_it = box.itemsIterator(base_rect.ul);
+
+            this->pushElement(Element::makeTextElement(
+                Element::Type::et_text, vbox_it.getNext().ul, you_lose_slice,
+                TEXT_COLOR));
+
+            SRect button_rect =
+                centerIn(vbox_it.getNext(), button_box.getDims());
+            HBox::LocIterator hbox_it =
+                button_box.itemsIterator(button_rect.ul);
+
+            Element *continue_event = this->pushButtonAt(
+                Element::Type::et_continue_btn,
+                centerIn(hbox_it.getNext(), continue_button_dims).ul,
+                continue_slice, {}, button_padding);
+
+            continue_event->cell_loc = losingCell(this->grid);
+
+            this->pushButtonAt(
+                Element::Type::et_restart_btn,
+                centerIn(hbox_it.getNext(), restart_button_dims).ul,
+                restart_slice, {}, button_padding);
+
+            assert(!hbox_it.hasNext());
+            assert(!vbox_it.hasNext());
+        }
+    }
+    // }}}2
+
     // build grid {{{2
     // build game grid {{{3
     auto buildGameGrid(SRect grid_rect, Dims cell_dims, size_t cell_padding)
@@ -468,11 +669,11 @@ struct Context {
 
         footer_contents.pushItem(&this->arena,
                                  this->getButtonDims(btn_text, {}, padding));
-        footer_contents.pushItem(&this->arena, name_box.total_dims);
+        footer_contents.pushItem(&this->arena, name_box.getDims());
         footer_contents.pushItem(&this->arena,
                                  this->getTextDims(no_rule_applied_slice));
 
-        SRect inner_rect = centerIn(footer_rect, footer_contents.total_dims);
+        SRect inner_rect = centerIn(footer_rect, footer_contents.getDims());
 
         VBox::LocIterator footer_it =
             footer_contents.itemsIterator(inner_rect.ul);
@@ -579,12 +780,12 @@ struct Context {
                           this->getButtonDims(inc_slice, inc_dec_dims, Dims{}));
         mine_box.pushItem(&this->arena, this->getTextDims(mine_slice));
 
-        vbox.pushItem(&this->arena, width_box.total_dims);
-        vbox.pushItem(&this->arena, height_box.total_dims);
-        vbox.pushItem(&this->arena, mine_box.total_dims);
+        vbox.pushItem(&this->arena, width_box.getDims());
+        vbox.pushItem(&this->arena, height_box.getDims());
+        vbox.pushItem(&this->arena, mine_box.getDims());
         vbox.pushItem(&this->arena, button_dims);
 
-        SRect box_rect = centerIn(render_rect, vbox.total_dims);
+        SRect box_rect = centerIn(render_rect, vbox.getDims());
 
         VBox::LocIterator vbox_it = vbox.itemsIterator(box_rect.ul);
         HBox::LocIterator width_box_it =
@@ -640,212 +841,6 @@ struct Context {
         SLocation button_loc = centerIn(button_box, button_dims).ul;
         this->pushButtonAt(Element::Type::et_generate_grid_btn, button_loc,
                            gen_slice, {}, Dims{5, 5});
-    }
-    // }}}2
-
-    // build play scene {{{2
-    auto buildPlayScene(SRect render_rect, double dt_s) -> void {
-        VBox game_box{};
-        initVBox(&game_box);
-
-        HBox grid_solver_box{};
-        initHBox(&grid_solver_box);
-
-        long remaining_flags = this->preview_grid
-                                   ? this->mine_input
-                                   : this->solver.getRemainingFlags(this->grid);
-
-        size_t mine_len = 12 + 1; // "Mines: (-)dddd" + null
-        char *mines_label = this->arena.pushTN<char>(mine_len);
-        StrSlice mine_slice =
-            sliceNPrintf(mines_label, mine_len, "Mines: %ld", remaining_flags);
-
-        Dims mine_label_dims = this->getTextDims(mine_slice, Dims{0, 20});
-
-        size_t factor = 5; // must be > 1
-        size_t solver_width =
-            clamp<size_t>(250, render_rect.dims.width / factor, 800);
-
-        Dims grid_dims{render_rect.dims.width - solver_width,
-                       render_rect.dims.height - mine_label_dims.height};
-        Dims solver_dims{solver_width,
-                         render_rect.dims.height - mine_label_dims.height};
-
-        grid_solver_box.pushItem(&this->arena, grid_dims);
-        grid_solver_box.pushItem(&this->arena, solver_dims);
-
-        game_box.pushItem(&this->arena, mine_label_dims);
-        game_box.pushItem(&this->arena, grid_solver_box.total_dims);
-
-        VBox::LocIterator game_box_it = game_box.itemsIterator(render_rect.ul);
-
-        SRect mine_label_rect = game_box_it.getNext();
-        SRect grid_solver_rect = game_box_it.getNext();
-
-        assert(!game_box_it.hasNext());
-
-        HBox::LocIterator grid_solver_box_it =
-            grid_solver_box.itemsIterator(grid_solver_rect.ul);
-
-        SRect grid_rect = grid_solver_box_it.getNext();
-        SRect solver_rect = grid_solver_box_it.getNext();
-
-        assert(!grid_solver_box_it.hasNext());
-
-        this->pushElement(Element::makeTextElement(Element::Type::et_text,
-                                                   mine_label_rect.ul,
-                                                   mine_slice, TEXT_COLOR));
-        this->buildSolverPane(solver_rect);
-
-        size_t cell_padding = 1;
-        Dims cell_dims = this->getGameCellDims(grid_rect, cell_padding);
-
-        if (this->preview_grid) {
-            this->buildPreviewGrid(grid_rect, cell_dims, cell_padding);
-            return;
-        } else {
-            this->buildGameGrid(grid_rect, cell_dims, cell_padding);
-        }
-
-        if (this->lose_animation_playing) {
-            Location source = this->lose_animation_source;
-
-            this->lose_animation_t += dt_s;
-            if (this->lose_animation_t > 1.0) {
-                this->lose_animation_playing = false;
-                this->lose_animation_t = 1.0;
-                this->lose_animation_source = {};
-            }
-
-            ssize_t r_pos = source.row * (cell_dims.height + 2 * cell_padding) +
-                            cell_padding;
-            ssize_t c_pos = source.col * (cell_dims.width + 2 * cell_padding) +
-                            cell_padding;
-
-            SLocation cell_loc{render_rect.ul.row + r_pos,
-                               render_rect.ul.col + c_pos};
-            SRect cell_rect{cell_loc, cell_dims};
-
-            double rect_width =
-                2.0 * render_rect.dims.width * this->lose_animation_t;
-            double rect_height =
-                2.0 * render_rect.dims.height * this->lose_animation_t;
-
-            Dims rect_dims{(size_t)rect_width, (size_t)rect_height};
-            SRect flame_rect = centerIn(cell_rect, rect_dims);
-
-            this->pushElement(Element::makeRectElement(
-                Element::Type::et_lose_flame, flame_rect.ul, flame_rect.dims));
-
-            LLEvent *event = this->arena.pushT<LLEvent>({Event::et_animation});
-            this->ev_sentinel.enqueue(event);
-        } else if (gridSolved(this->grid)) {
-            // Show You Win modal and Restart button
-
-            this->pushElement(
-                Element::makeRectElement(Element::Type::et_modal_background,
-                                         render_rect.ul, render_rect.dims));
-
-            StrSlice you_win_slice = STR_SLICE("You Win!");
-            StrSlice restart_slice = STR_SLICE("Restart");
-
-            Dims button_padding{10, 10};
-            Dims button_dims =
-                this->getButtonDims(restart_slice, {}, button_padding);
-
-            VBox box{};
-            initVBox(&box, 10);
-
-            box.pushItem(&this->arena, this->getTextDims(you_win_slice));
-            box.pushItem(&this->arena, button_dims);
-            SRect base_rect = centerIn(render_rect, box.total_dims);
-
-            Dims min_modal_dims{render_rect.dims.width / 3,
-                                render_rect.dims.height / 3};
-
-            Dims modal_dims = expandToMin(min_modal_dims, base_rect.dims);
-            SLocation modal_loc = centerIn(render_rect, modal_dims).ul;
-
-            this->pushElement(Element::makeRectElement(
-                Element::Type::et_background, modal_loc, modal_dims));
-
-            VBox::LocIterator vbox_it = box.itemsIterator(base_rect.ul);
-
-            this->pushElement(Element::makeTextElement(
-                Element::Type::et_text, vbox_it.getNext().ul, you_win_slice,
-                TEXT_COLOR));
-
-            SRect button_rect = vbox_it.getNext();
-            this->pushButtonAt(Element::Type::et_restart_btn,
-                               centerIn(button_rect, button_dims).ul,
-                               restart_slice, {}, button_padding);
-
-            assert(!vbox_it.hasNext());
-        } else if (gridLost(this->grid)) {
-            // Show You Lose modal, Continue, and Restart buttons
-
-            this->pushElement(
-                Element::makeRectElement(Element::Type::et_modal_background,
-                                         render_rect.ul, render_rect.dims));
-
-            StrSlice you_lose_slice = STR_SLICE("You Lose!");
-            StrSlice continue_slice = STR_SLICE("Continue");
-            StrSlice restart_slice = STR_SLICE("Restart");
-
-            Dims button_padding{10, 10};
-            Dims continue_button_dims =
-                this->getButtonDims(continue_slice, {}, button_padding);
-            Dims restart_button_dims =
-                this->getButtonDims(restart_slice, {}, button_padding);
-
-            VBox box{};
-            initVBox(&box, 10);
-
-            HBox button_box{};
-            initHBox(&button_box, 10);
-
-            button_box.pushItem(&this->arena, continue_button_dims);
-            button_box.pushItem(&this->arena, restart_button_dims);
-
-            box.pushItem(&this->arena, this->getTextDims(you_lose_slice));
-            box.pushItem(&this->arena, button_box.total_dims);
-            SRect base_rect = centerIn(render_rect, box.total_dims);
-
-            Dims min_modal_dims{render_rect.dims.width / 3,
-                                render_rect.dims.height / 3};
-
-            Dims modal_dims = expandToMin(min_modal_dims, base_rect.dims);
-            SLocation modal_loc = centerIn(render_rect, modal_dims).ul;
-
-            this->pushElement(Element::makeRectElement(
-                Element::Type::et_background, modal_loc, modal_dims));
-
-            VBox::LocIterator vbox_it = box.itemsIterator(base_rect.ul);
-
-            this->pushElement(Element::makeTextElement(
-                Element::Type::et_text, vbox_it.getNext().ul, you_lose_slice,
-                TEXT_COLOR));
-
-            SRect button_rect =
-                centerIn(vbox_it.getNext(), button_box.total_dims);
-            HBox::LocIterator hbox_it =
-                button_box.itemsIterator(button_rect.ul);
-
-            Element *continue_event = this->pushButtonAt(
-                Element::Type::et_continue_btn,
-                centerIn(hbox_it.getNext(), continue_button_dims).ul,
-                continue_slice, {}, button_padding);
-
-            continue_event->cell_loc = losingCell(this->grid);
-
-            this->pushButtonAt(
-                Element::Type::et_restart_btn,
-                centerIn(hbox_it.getNext(), restart_button_dims).ul,
-                restart_slice, {}, button_padding);
-
-            assert(!hbox_it.hasNext());
-            assert(!vbox_it.hasNext());
-        }
     }
     // }}}2
     // }}}1

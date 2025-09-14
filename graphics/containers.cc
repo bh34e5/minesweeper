@@ -4,7 +4,8 @@
 #include "../dirutils.cc"
 #include "../linkedlist.cc"
 
-#include "stddef.h"
+#include <assert.h>
+#include <stddef.h>
 
 struct HBox {
     struct LocIterator {

@@ -106,6 +106,20 @@ auto show_hidden_cells(Grid *grid, size_t row, size_t col, void *) -> bool {
     return false;
 }
 // }}}2
+
+// click remaining cells {{{2
+auto click_remaining_cells(Grid *grid, size_t row, size_t col, void *) -> bool {
+    long remainingFlags = gridRemainingFlags(*grid);
+    if (remainingFlags == 0) {
+        Cell &cell = (*grid)[row][col];
+        if (cell.display_type == CellDisplayType::cdt_hidden) {
+            uncoverSelfAndNeighbors(grid, &cell);
+            return true;
+        }
+    }
+    return false;
+}
+// }}}2
 // }}}1
 
 auto testGrid() -> void {
@@ -362,7 +376,7 @@ struct Context {
 
         long remaining_flags = this->preview_grid
                                    ? this->mine_input
-                                   : this->solver.getRemainingFlags(this->grid);
+                                   : gridRemainingFlags(this->grid);
 
         size_t mine_len = 12 + 1; // "Mines: (-)dddd" + null
         char *mines_label = this->arena.pushTN<char>(mine_len);
@@ -1368,10 +1382,13 @@ auto initContext(Arena *arena, Window<Context> *window, Context *ctx) -> void {
         makeRule(&flag_remaining_cells, STR_SLICE("flag_remaining_cells"));
     GridSolver::Rule show_hidden_rule =
         makeRule(&show_hidden_cells, STR_SLICE("show_hidden_cells"));
+    GridSolver::Rule click_remaining_rule =
+        makeRule(&click_remaining_cells, STR_SLICE("click_remaining_cells"));
 
     initSolver(&ctx->solver);
     ctx->solver.registerRule(arena, flag_remaining_rule);
     ctx->solver.registerRule(arena, show_hidden_rule);
+    ctx->solver.registerRule(arena, click_remaining_rule);
     registerPatterns(arena, &ctx->solver);
 
     ctx->grid_arena = arena->subarena(KILOBYTES(4)); // pull out 4K

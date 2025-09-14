@@ -6,6 +6,7 @@
 #include "slice.cc"
 
 #include <assert.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -258,6 +259,20 @@ auto losingCell(Grid grid) -> Location {
         }
     }
     assert(0 && "Grid is not losing");
+}
+
+auto gridRemainingFlags(Grid grid) -> long {
+    assert(grid.mine_count <= static_cast<size_t>(LONG_MAX) &&
+           "Mine count exceeds long max");
+
+    long remaining = static_cast<long>(grid.mine_count);
+    for (auto &cell : grid.cells) {
+        if (cell.display_type == CellDisplayType::cdt_flag) {
+            remaining -= 1;
+        }
+    }
+
+    return remaining;
 }
 
 auto printCellValue(Cell cell) -> void {

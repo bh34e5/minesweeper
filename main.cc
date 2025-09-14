@@ -1193,16 +1193,12 @@ struct Context {
                 break;
             }
 
-            printf("Stepping solver\n");
-
             bool did_work = this->solver.step(&this->grid);
             if (did_work) {
-                printf("Solver did work\n");
                 this->did_step = true;
                 this->last_work_rule = this->solver.state.last_work_rule;
                 this->last_step_success = true;
             } else {
-                printf("Solver did not do work\n");
                 this->did_step = true;
                 this->last_work_rule = 0;
                 this->last_step_success = false;

@@ -305,7 +305,7 @@ template <typename T> struct Window {
         Dims bmp_dims{512, 512};
         unsigned char *pixels = arena->pushTN<unsigned char>(bmp_dims.area());
 
-        printf("%p\n", file_contents);
+        printf("%p\n", (void *)file_contents);
         stbtt_BakeFontBitmap((unsigned char const *)file_contents, 0,
                              pixel_height, pixels, bmp_dims.width,
                              bmp_dims.height, 32 /* space */,

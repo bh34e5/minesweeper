@@ -1,5 +1,6 @@
 #include "arena.cc"
 #include "dirutils.cc"
+#include "generated.cc"
 #include "graphics/bakedfont.cc"
 #include "graphics/common.cc"
 #include "graphics/containers.cc"
@@ -15,11 +16,9 @@
 #include "slice.cc"
 #include "solver.cc"
 
-// auto generated
-#include "generated/generated.cc"
-
 #include <GLFW/glfw3.h>
 #include <assert.h>
+#include <dlfcn.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -142,11 +141,11 @@ auto testGrid() -> void {
     registerPatterns(&grid_arena, &solver);
 
     OneOfAwareRule one_of_aware_rule = makeOneOfAware(MEGABYTES(10));
-    one_of_aware_rule.registerRule(&grid_arena, &solver);
+    registerRule(&grid_arena, &solver, &one_of_aware_rule);
 
     bool is_solvable = solver.solvable(&grid);
 
-    printGrid(grid);
+    printGrid(grid, false);
     printf("The grid %s solvable\n", is_solvable ? "is" : "is not");
 
     deleteOneOfAware(&one_of_aware_rule);
@@ -1442,7 +1441,8 @@ struct Context {
     }
 };
 
-auto initContext(Arena *arena, Window<Context> *window, Context *ctx) -> void {
+auto initContext(Arena *arena, Window<Context> *window, Context *ctx,
+                 Slice<RulePlugin *> plugins) -> void {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -1461,6 +1461,9 @@ auto initContext(Arena *arena, Window<Context> *window, Context *ctx) -> void {
     ctx->solver.registerRule(arena, show_hidden_rule);
     ctx->solver.registerRule(arena, click_remaining_rule);
     registerPatterns(arena, &ctx->solver);
+    for (auto plugin : plugins) {
+        plugin->regRule(arena, &ctx->solver);
+    }
 
     ctx->grid_arena = arena->subarena(KILOBYTES(4)); // pull out 4K
     ctx->arena = arena->subarena(0);                 // and use the rest here
@@ -1501,7 +1504,7 @@ auto initContext(Arena *arena, Window<Context> *window, Context *ctx) -> void {
     LinkedList<Context::Element>::initSentinel(&ctx->el_sentinel);
 }
 
-auto deinitContext(Context *ctx) -> void {
+auto deinitContext(Context *ctx, Slice<RulePlugin *> plugins) -> void {
     deleteBakedFont(&ctx->baked_font);
     deleteQuadProgram(&ctx->quad_program);
 
@@ -1513,19 +1516,39 @@ auto deinitContext(Context *ctx) -> void {
     deleteTexture(&ctx->focus_button);
     deleteTexture(&ctx->disabled_button);
     deleteTexture(&ctx->button);
+
+    for (auto plugin : plugins) {
+        plugin->deregRule(&ctx->solver);
+    }
+    deregisterPatterns(&ctx->solver);
 }
 
 int main() {
-    testGrid();
+    Arena arena = makeArena(MEGABYTES(10));
+
+    void *handle = dlopen(SO("./one_of_aware"), RTLD_NOW);
+    if (handle == nullptr) {
+        fprintf(stderr, "Failed to open object: %s\n", dlerror());
+        EXIT(1);
+    }
+
+    RulePlugin *plugin = (RulePlugin *)dlsym(handle, "plugin");
+    if (plugin == nullptr) {
+        fprintf(stderr, "Failed to find sym: %p\n", (void *)plugin);
+        EXIT(1);
+    }
 
     initGLFW(&handle_error);
-
-    Arena arena = makeArena(MEGABYTES(10));
 
     Window<Context> window{};
     initWindow(&arena, &window, 800, 600, "Hello, world");
 
-    initContext(&arena, &window, &window.ctx);
+    RulePlugin *plugins[] = {plugin};
+    Slice<RulePlugin *> plugin_slice = SLICE(RulePlugin *, plugins);
+
+    loadPatternPlugins();
+
+    initContext(&arena, &window, &window.ctx, plugin_slice);
     window.setPos(500, 500);
     window.show();
 
@@ -1554,9 +1577,12 @@ int main() {
         }
     }
 
-    deinitContext(&window.ctx);
+    deinitContext(&window.ctx, plugin_slice);
     deleteWindow(&window);
     freeArena(&arena);
     glfwTerminate();
+
+    unloadPatternPlugins();
+    dlclose(handle);
     return 0;
 }

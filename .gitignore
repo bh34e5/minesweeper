@@ -1,10 +1,12 @@
 minesweeper
 codegen
 fonts/
+generated/
+*.dylib
+*.so
 
 *.d
-minesweeper.dSYM/
-codegen.dSYM/
+*.dSYM/
 
 .ccls
 .ccls-cache/

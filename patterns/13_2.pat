@@ -1,7 +1,7 @@
-nn_
-13n
-___
+nnn_
+n13n
+n___
 
-nnF
-13n
-__F
+nnnF
+n13n
+n__F

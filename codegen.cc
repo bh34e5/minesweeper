@@ -235,12 +235,11 @@ auto writeFunction_270r(FILE *out, StrSlice out_fn, Dims dims) -> void {
 }
 
 auto writeBody(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
-    fprintf(out, "#pragma once\n");
+    fprintf(out, "#include \"../grid.h\"\n");
+    fprintf(out, "#include \"../solver.h\"\n");
     fprintf(out, "\n");
     fprintf(out, "#include \"../arena.cc\"\n");
     fprintf(out, "#include \"../dirutils.cc\"\n");
-    fprintf(out, "#include \"../grid.cc\"\n");
-    fprintf(out, "#include \"../solver.cc\"\n");
     fprintf(out, "#include \"../strslice.cc\"\n");
     fprintf(out, "\n");
     fprintf(out, "#include <sys/types.h>\n");
@@ -288,14 +287,20 @@ auto writeBody(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
                  "did_work_270r;\n");
     fprintf(out, "}\n");
     fprintf(out, "\n");
-    fprintf(out,
-            "auto register_%.*s(Arena *arena, GridSolver *solver) -> void {\n",
+    fprintf(out, "static StrSlice rule_name = STR_SLICE(\"%.*s\");\n",
             STR_ARGS(out_fn));
+    fprintf(out, "\n");
+    fprintf(out, "REGISTERER(regRule, arena, solver) {\n");
     fprintf(out,
-            "    solver->registerRule(arena, makeRule(&%.*s, "
-            "STR_SLICE(\"%.*s\")));\n",
-            STR_ARGS(out_fn), STR_ARGS(out_fn));
+            "    solver->registerRule(arena, makeRule(&%.*s, rule_name));\n",
+            STR_ARGS(out_fn));
     fprintf(out, "}\n");
+    fprintf(out, "\n");
+    fprintf(out, "DEREGISTERER(deregRule, solver) {\n");
+    fprintf(out, "    solver->deregisterRule(rule_name);\n");
+    fprintf(out, "}\n");
+    fprintf(out, "\n");
+    fprintf(out, "RulePlugin plugin{regRule, deregRule};\n");
 }
 
 auto usage(char const *path) -> void {

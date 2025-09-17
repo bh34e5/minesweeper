@@ -7,6 +7,14 @@
 
 #define EXIT myExit
 
+#if __APPLE__
+#define SO(name) name ".dylib"
+#elif __linux__
+#define SO(name) name ".so"
+#else
+#error "Unsupported target"
+#endif
+
 auto myExit(int code) -> void { exit(code); }
 
 template <typename T> auto clamp(T min_val, T val, T max_val) -> T {

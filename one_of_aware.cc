@@ -1,11 +1,10 @@
-#pragma once
+#include "grid.h"
+#include "solver.h"
 
 #include "arena.cc"
 #include "dirutils.cc"
-#include "grid.cc"
 #include "linkedlist.cc"
 #include "slice.cc"
-#include "solver.cc"
 
 #include <sys/types.h>
 
@@ -54,13 +53,6 @@ struct OneOfAwareRule {
 
     Arena arena;
     OptionsKeeper keeper;
-
-    auto registerRule(Arena *arena, GridSolver *solver) -> void {
-        GridSolver::Rule rule = makeRule(applyRule, onEpochStart, onEpochFinish,
-                                         this, STR_SLICE("one_of_aware"));
-
-        solver->registerRule(arena, rule);
-    }
 
     auto onStart(Grid *grid) -> void {
         LinkedList<CellOptions>::initSentinel(&this->keeper.options_sentinel);
@@ -307,3 +299,29 @@ auto deleteOneOfAware(OneOfAwareRule *rule) -> void {
     freeArena(&rule->arena);
     rule->arena = Arena{};
 }
+
+static StrSlice rule_name = STR_SLICE("one_of_aware");
+
+auto registerRule(Arena *arena, GridSolver *solver, OneOfAwareRule *oneOfAware)
+    -> void {
+    GridSolver::Rule rule =
+        makeRule(OneOfAwareRule::applyRule, OneOfAwareRule::onEpochStart,
+                 OneOfAwareRule::onEpochFinish, oneOfAware, rule_name);
+
+    solver->registerRule(arena, rule);
+}
+
+REGISTERER(regRule, arena, solver) {
+    OneOfAwareRule *internal = new OneOfAwareRule();
+    *internal = makeOneOfAware(MEGABYTES(4));
+    registerRule(arena, solver, internal);
+}
+
+DEREGISTERER(deregRule, solver) {
+    GridSolver::Rule rule = solver->deregisterRule(rule_name);
+    OneOfAwareRule *internal = (OneOfAwareRule *)rule.data;
+    deleteOneOfAware(internal);
+    delete internal;
+}
+
+RulePlugin plugin{regRule, deregRule};

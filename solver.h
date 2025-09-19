@@ -20,10 +20,11 @@ struct SolveState {
 
 struct GridSolver {
     struct Rule {
-        typedef auto(Apply)(Grid *grid, size_t row, size_t col, void *data)
-            -> bool;
-        typedef auto(OnEpochStart)(Grid *grid, void *data) -> void;
-        typedef auto(OnEpochFinish)(Grid *grid, void *data) -> void;
+        typedef auto(Apply)(Grid *grid, GridApi api, size_t row, size_t col,
+                            void *data) -> bool;
+        typedef auto(OnEpochStart)(Grid *grid, GridApi api, void *data) -> void;
+        typedef auto(OnEpochFinish)(Grid *grid, GridApi api, void *data)
+            -> void;
 
         Apply *apply;
         OnEpochStart *onStart;
@@ -31,28 +32,43 @@ struct GridSolver {
         void *data;
         StrSlice name;
 
-        auto applyRule(Grid *grid, size_t row, size_t col) -> bool {
+        static auto from(Apply *apply_fn, StrSlice name) -> Rule {
+            Rule rule{apply_fn, nullptr, nullptr, nullptr, name};
+            return rule;
+        }
+
+        static auto from(Apply *apply_fn, OnEpochStart *on_epoch_start_fn,
+                         OnEpochFinish *on_epoch_finish_fn, void *data,
+                         StrSlice name) -> Rule {
+            Rule rule{apply_fn, on_epoch_start_fn, on_epoch_finish_fn, data,
+                      name};
+            return rule;
+        }
+
+        auto applyRule(Grid *grid, GridApi api, size_t row, size_t col)
+            -> bool {
             if (this->apply == nullptr) {
                 return false;
             }
-            return this->apply(grid, row, col, this->data);
+            return this->apply(grid, api, row, col, this->data);
         }
 
-        auto onEpochStart(Grid *grid) -> void {
+        auto onEpochStart(Grid *grid, GridApi api) -> void {
             if (this->onStart == nullptr) {
                 return;
             }
-            this->onStart(grid, this->data);
+            this->onStart(grid, api, this->data);
         }
 
-        auto onEpochFinish(Grid *grid) -> void {
+        auto onEpochFinish(Grid *grid, GridApi api) -> void {
             if (this->onFinish == nullptr) {
                 return;
             }
-            this->onFinish(grid, this->data);
+            this->onFinish(grid, api, this->data);
         }
     };
 
+    GridApi api;
     LinkedList<Rule> rule_sentinel;
     size_t rule_count;
     SolveState state;
@@ -104,7 +120,7 @@ struct GridSolver {
             this->state.rule == 0) {
             LinkedList<Rule> *ll = &this->rule_sentinel;
             while ((ll = ll->next) != &this->rule_sentinel) {
-                ll->val.onEpochStart(grid);
+                ll->val.onEpochStart(grid, this->api);
             }
 
             this->state.did_epoch_work = false;
@@ -112,7 +128,8 @@ struct GridSolver {
 
         size_t rule_to_apply = this->state.rule++;
         Rule &rule = this->ruleAt(rule_to_apply);
-        *did_work = rule.applyRule(grid, this->state.row, this->state.col);
+        *did_work =
+            rule.applyRule(grid, this->api, this->state.row, this->state.col);
 
         if (*did_work) {
             this->state.did_epoch_work = true;
@@ -133,7 +150,7 @@ struct GridSolver {
 
                     LinkedList<Rule> *ll = &this->rule_sentinel;
                     while ((ll = ll->next) != &this->rule_sentinel) {
-                        rule.onEpochFinish(grid);
+                        rule.onEpochFinish(grid, this->api);
                     }
 
                     if (!this->state.did_epoch_work) {
@@ -173,7 +190,7 @@ struct GridSolver {
         // close out any epochs
         LinkedList<Rule> *ll = &this->rule_sentinel;
         while ((ll = ll->next) != &this->rule_sentinel) {
-            ll->val.onEpochFinish(grid);
+            ll->val.onEpochFinish(grid, this->api);
         }
     }
 
@@ -198,10 +215,4 @@ struct RulePlugin {
     RuleDeregisterer *deregRule;
 };
 
-auto initSolver(GridSolver *solver) -> void;
-auto makeRule(GridSolver::Rule::Apply *apply_fn, StrSlice name)
-    -> GridSolver::Rule;
-auto makeRule(GridSolver::Rule::Apply *apply_fn,
-              GridSolver::Rule::OnEpochStart *on_epoch_start_fn,
-              GridSolver::Rule::OnEpochFinish *on_epoch_finish_fn, void *data,
-              StrSlice name) -> GridSolver::Rule;
+auto initSolver(GridSolver *solver, GridApi api) -> void;

@@ -26,9 +26,19 @@
 
 #define LEN(arr) (sizeof(arr) / sizeof(*arr))
 
+static GridApi grid_api{
+    &flagCell,
+    &flagCell,
+    &unflagCell,
+    &unflagCell,
+    &uncoverSelfAndNeighbors,
+    &uncoverSelfAndNeighbors,
+};
+
 // local rules {{{1
 // flag_remaining_cells {{{2
-auto flag_remaining_cells(Grid *grid, size_t row, size_t col, void *) -> bool {
+auto flag_remaining_cells(Grid *grid, GridApi api, size_t row, size_t col,
+                          void *) -> bool {
     Cell cur = (*grid)[row][col];
     if (cur.display_type != CellDisplayType::cdt_value ||
         cur.type != CellType::ct_number) {
@@ -72,7 +82,8 @@ auto flag_remaining_cells(Grid *grid, size_t row, size_t col, void *) -> bool {
 // }}}2
 
 // show_hidden_cells {{{2
-auto show_hidden_cells(Grid *grid, size_t row, size_t col, void *) -> bool {
+auto show_hidden_cells(Grid *grid, GridApi api, size_t row, size_t col, void *)
+    -> bool {
     Cell cur = (*grid)[row][col];
     if (cur.display_type != CellDisplayType::cdt_value ||
         cur.type != CellType::ct_number) {
@@ -107,7 +118,8 @@ auto show_hidden_cells(Grid *grid, size_t row, size_t col, void *) -> bool {
 // }}}2
 
 // click remaining cells {{{2
-auto click_remaining_cells(Grid *grid, size_t row, size_t col, void *) -> bool {
+auto click_remaining_cells(Grid *grid, GridApi api, size_t row, size_t col,
+                           void *) -> bool {
     long remainingFlags = gridRemainingFlags(*grid);
     if (remainingFlags == 0) {
         Cell &cell = (*grid)[row][col];
@@ -128,13 +140,13 @@ auto testGrid() -> void {
 
     Grid grid = generateGrid(&grid_arena, Dims{9, 18}, 34, Location{5, 5});
 
-    GridSolver::Rule flag_remaining_rule =
-        makeRule(&flag_remaining_cells, STR_SLICE("flag_remaining_cells"));
-    GridSolver::Rule show_hidden_rule =
-        makeRule(&show_hidden_cells, STR_SLICE("show_hidden_cells"));
+    GridSolver::Rule flag_remaining_rule = GridSolver::Rule::from(
+        &flag_remaining_cells, STR_SLICE("flag_remaining_cells"));
+    GridSolver::Rule show_hidden_rule = GridSolver::Rule::from(
+        &show_hidden_cells, STR_SLICE("show_hidden_cells"));
 
     GridSolver solver{};
-    initSolver(&solver);
+    initSolver(&solver, grid_api);
 
     solver.registerRule(&grid_arena, flag_remaining_rule);
     solver.registerRule(&grid_arena, show_hidden_rule);
@@ -1449,14 +1461,14 @@ auto initContext(Arena *arena, Window<Context> *window, Context *ctx,
     glFrontFace(GL_CCW);
     glClearColor(0.0, 0.0, 0.0, 0.0);
 
-    GridSolver::Rule flag_remaining_rule =
-        makeRule(&flag_remaining_cells, STR_SLICE("flag_remaining_cells"));
-    GridSolver::Rule show_hidden_rule =
-        makeRule(&show_hidden_cells, STR_SLICE("show_hidden_cells"));
-    GridSolver::Rule click_remaining_rule =
-        makeRule(&click_remaining_cells, STR_SLICE("click_remaining_cells"));
+    GridSolver::Rule flag_remaining_rule = GridSolver::Rule::from(
+        &flag_remaining_cells, STR_SLICE("flag_remaining_cells"));
+    GridSolver::Rule show_hidden_rule = GridSolver::Rule::from(
+        &show_hidden_cells, STR_SLICE("show_hidden_cells"));
+    GridSolver::Rule click_remaining_rule = GridSolver::Rule::from(
+        &click_remaining_cells, STR_SLICE("click_remaining_cells"));
 
-    initSolver(&ctx->solver);
+    initSolver(&ctx->solver, grid_api);
     ctx->solver.registerRule(arena, flag_remaining_rule);
     ctx->solver.registerRule(arena, show_hidden_rule);
     ctx->solver.registerRule(arena, click_remaining_rule);

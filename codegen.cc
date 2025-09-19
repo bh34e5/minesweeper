@@ -71,7 +71,7 @@ auto writeActionCell(FILE *out, Action action, Location loc) -> void {
                 "CellDisplayType::cdt_hidden || pat.c_%zu_%zu->display_type == "
                 "CellDisplayType::cdt_maybe_flag) {\n",
                 loc.row, loc.col, loc.row, loc.col);
-        fprintf(out, "        flagCell(grid, pat.c_%zu_%zu);\n", loc.row,
+        fprintf(out, "        api.flagCell(grid, pat.c_%zu_%zu);\n", loc.row,
                 loc.col);
         fprintf(out, "        did_work = true;\n");
         fprintf(out, "    }\n");
@@ -90,7 +90,8 @@ auto writeActionCell(FILE *out, Action action, Location loc) -> void {
                 "        pat.c_%zu_%zu->display_type = "
                 "CellDisplayType::cdt_hidden;\n",
                 loc.row, loc.col);
-        fprintf(out, "        uncoverSelfAndNeighbors(grid, pat.c_%zu_%zu);\n",
+        fprintf(out,
+                "        api.uncoverSelfAndNeighbors(grid, pat.c_%zu_%zu);\n",
                 loc.row, loc.col);
         fprintf(out, "        did_work = true;\n");
         fprintf(out, "    }\n");
@@ -102,7 +103,8 @@ auto writeActionCell(FILE *out, Action action, Location loc) -> void {
 auto writeCheckPatternFunction(FILE *out, StrSlice out_fn, Pattern pattern)
     -> void {
     fprintf(out,
-            "auto checkPattern_%.*s(Grid *grid, size_t row, size_t col, "
+            "auto checkPattern_%.*s(Grid *grid, GridApi api, size_t row, "
+            "size_t col, "
             "Pattern_%.*s pat) -> bool {\n",
             STR_ARGS(out_fn), STR_ARGS(out_fn));
     fprintf(out, "    // check pattern match\n");
@@ -174,7 +176,8 @@ auto writeFunctionGeneric(FILE *out, StrSlice out_fn, Dims dims, size_t num,
     Dims dims_adj = DAdj(dims);
 
     fprintf(out,
-            "auto %.*s_%zu%c(Grid *grid, size_t row, size_t col) -> bool {\n",
+            "auto %.*s_%zu%c(Grid *grid, GridApi api, size_t row, size_t col) "
+            "-> bool {\n",
             STR_ARGS(out_fn), num, suffix);
     fprintf(out, "    size_t pat_width = %zu;\n", dims_adj.width);
     fprintf(out, "    size_t pat_height = %zu;\n", dims_adj.height);
@@ -196,7 +199,7 @@ auto writeFunctionGeneric(FILE *out, StrSlice out_fn, Dims dims, size_t num,
     }
     fprintf(out, "    };\n");
     fprintf(out, "\n");
-    fprintf(out, "    return checkPattern_%.*s(grid, row, col, pat);\n",
+    fprintf(out, "    return checkPattern_%.*s(grid, api, row, col, pat);\n",
             STR_ARGS(out_fn));
     fprintf(out, "};\n");
     fprintf(out, "\n");
@@ -261,24 +264,25 @@ auto writeBody(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
     writeFunction_270r(out, out_fn, dims);
 
     fprintf(out,
-            "auto %.*s(Grid *grid, size_t row, size_t col, void *) -> bool {\n",
+            "auto %.*s(Grid *grid, GridApi api, size_t row, size_t col, void "
+            "*) -> bool {\n",
             STR_ARGS(out_fn));
-    fprintf(out, "    bool did_work_0n = %.*s_0n(grid, row, col);\n",
+    fprintf(out, "    bool did_work_0n = %.*s_0n(grid, api, row, col);\n",
             STR_ARGS(out_fn));
-    fprintf(out, "    bool did_work_90n = %.*s_90n(grid, row, col);\n",
+    fprintf(out, "    bool did_work_90n = %.*s_90n(grid, api, row, col);\n",
             STR_ARGS(out_fn));
-    fprintf(out, "    bool did_work_180n = %.*s_180n(grid, row, col);\n",
+    fprintf(out, "    bool did_work_180n = %.*s_180n(grid, api, row, col);\n",
             STR_ARGS(out_fn));
-    fprintf(out, "    bool did_work_270n = %.*s_270n(grid, row, col);\n",
+    fprintf(out, "    bool did_work_270n = %.*s_270n(grid, api, row, col);\n",
             STR_ARGS(out_fn));
     fprintf(out, "\n");
-    fprintf(out, "    bool did_work_0r = %.*s_0r(grid, row, col);\n",
+    fprintf(out, "    bool did_work_0r = %.*s_0r(grid, api, row, col);\n",
             STR_ARGS(out_fn));
-    fprintf(out, "    bool did_work_90r = %.*s_90r(grid, row, col);\n",
+    fprintf(out, "    bool did_work_90r = %.*s_90r(grid, api, row, col);\n",
             STR_ARGS(out_fn));
-    fprintf(out, "    bool did_work_180r = %.*s_180r(grid, row, col);\n",
+    fprintf(out, "    bool did_work_180r = %.*s_180r(grid, api, row, col);\n",
             STR_ARGS(out_fn));
-    fprintf(out, "    bool did_work_270r = %.*s_270r(grid, row, col);\n",
+    fprintf(out, "    bool did_work_270r = %.*s_270r(grid, api, row, col);\n",
             STR_ARGS(out_fn));
     fprintf(out, "\n");
     fprintf(out, "    return did_work_0n || did_work_180n || did_work_90n || "
@@ -292,7 +296,8 @@ auto writeBody(FILE *out, StrSlice out_fn, Pattern pattern) -> void {
     fprintf(out, "\n");
     fprintf(out, "REGISTERER(regRule, arena, solver) {\n");
     fprintf(out,
-            "    solver->registerRule(arena, makeRule(&%.*s, rule_name));\n",
+            "    solver->registerRule(arena, GridSolver::Rule::from(&%.*s, "
+            "rule_name));\n",
             STR_ARGS(out_fn));
     fprintf(out, "}\n");
     fprintf(out, "\n");

@@ -104,17 +104,54 @@ struct Grid {
     }
 };
 
-auto flagCell(Grid *grid, Location loc) -> void;
-auto flagCell(Grid *grid, Cell *cell) -> void;
-auto unflagCell(Grid *grid, Location loc) -> void;
-auto unflagCell(Grid *grid, Cell *cell) -> void;
-auto resetGrid(Grid *grid) -> void;
-auto uncoverSelfAndNeighbors(Grid *grid, Location loc) -> void;
-auto uncoverSelfAndNeighbors(Grid *grid, Cell *cell) -> void;
 auto generateGrid(Arena *arena, Dims dims, size_t mine_count,
                   Location start_loc) -> Grid;
+auto resetGrid(Grid *grid) -> void;
 auto gridSolved(Grid grid) -> bool;
 auto gridLost(Grid grid) -> bool;
 auto losingCell(Grid grid) -> Location;
 auto gridRemainingFlags(Grid grid) -> long;
 auto printGrid(Grid grid, bool internal) -> void;
+
+#define FlagCellLocType(name, grid, loc)                                       \
+    auto(name)(Grid * grid, Location loc) -> void
+#define FlagCellCellType(name, grid, cell)                                     \
+    auto(name)(Grid * grid, Cell * cell) -> void
+#define UnflagCellLocType(name, grid, loc)                                     \
+    auto(name)(Grid * grid, Location loc) -> void
+#define UnflagCellCellType(name, grid, cell)                                   \
+    auto(name)(Grid * grid, Cell * cell) -> void
+#define UncoverSelfAndNeighborsLocType(name, grid, loc)                        \
+    auto(name)(Grid * grid, Location loc) -> void
+#define UncoverSelfAndNeighborsCellType(name, grid, cell)                      \
+    auto(name)(Grid * grid, Cell * cell) -> void
+
+typedef FlagCellLocType(FlagCellLoc, grid, loc);
+typedef FlagCellCellType(FlagCellCell, grid, cell);
+typedef UnflagCellLocType(UnflagCellLoc, grid, loc);
+typedef UnflagCellCellType(UnflagCellCell, grid, cell);
+typedef UncoverSelfAndNeighborsLocType(UncoverSelfAndNeighborsLoc, grid, loc);
+typedef UncoverSelfAndNeighborsCellType(UncoverSelfAndNeighborsCell, grid,
+                                        cell);
+
+struct GridApi {
+    FlagCellLoc *flagCellLoc;
+    FlagCellCell *flagCellCell;
+    UnflagCellLoc *unflagCellLoc;
+    UnflagCellCell *unflagCellCell;
+    UncoverSelfAndNeighborsLoc *uncoverSelfAndNeighborsLoc;
+    UncoverSelfAndNeighborsCell *uncoverSelfAndNeighborsCell;
+
+    FlagCellLocType(flagCell, grid, loc) { this->flagCellLoc(grid, loc); }
+    FlagCellCellType(flagCell, grid, cell) { this->flagCellCell(grid, cell); }
+    UnflagCellLocType(unflagCell, grid, loc) { this->unflagCellLoc(grid, loc); }
+    UnflagCellCellType(unflagCell, grid, cell) {
+        this->unflagCellCell(grid, cell);
+    }
+    UncoverSelfAndNeighborsLocType(uncoverSelfAndNeighbors, grid, loc) {
+        this->uncoverSelfAndNeighborsLoc(grid, loc);
+    }
+    UncoverSelfAndNeighborsCellType(uncoverSelfAndNeighbors, grid, cell) {
+        this->uncoverSelfAndNeighborsCell(grid, cell);
+    }
+};

@@ -52,10 +52,10 @@ generated:
 	mkdir $@
 
 one_of_aware.$(SO): one_of_aware.cc
-	g++ $(FLAGS) -shared -fPIC $< -o $@ -Wl,-undefined,dynamic_lookup
+	g++ $(FLAGS) -shared -fPIC $< -o $@
 
 pat_%.$(SO): generated/pat_%.cc
-	g++ $(FLAGS) -shared -fPIC $< -o $@ -Wl,-undefined,dynamic_lookup
+	g++ $(FLAGS) -shared -fPIC $< -o $@
 
 clean:
 	rm -rf generated

@@ -35,20 +35,20 @@ struct OptionsKeeper {
 };
 
 struct OneOfAwareRule {
-    static auto onEpochStart(Grid *grid, void *data) -> void {
+    static auto onEpochStart(Grid *grid, GridApi api, void *data) -> void {
         auto rule = static_cast<OneOfAwareRule *>(data);
         return rule->onStart(grid);
     }
 
-    static auto onEpochFinish(Grid *grid, void *data) -> void {
+    static auto onEpochFinish(Grid *grid, GridApi api, void *data) -> void {
         auto rule = static_cast<OneOfAwareRule *>(data);
         return rule->onFinish(grid);
     }
 
-    static auto applyRule(Grid *grid, size_t row, size_t col, void *data)
-        -> bool {
+    static auto applyRule(Grid *grid, GridApi api, size_t row, size_t col,
+                          void *data) -> bool {
         auto rule = static_cast<OneOfAwareRule *>(data);
-        return rule->apply(grid, row, col);
+        return rule->apply(grid, api, row, col);
     }
 
     Arena arena;
@@ -99,7 +99,7 @@ struct OneOfAwareRule {
 
     auto onFinish(Grid *grid) -> void { this->arena.reset(0); }
 
-    auto apply(Grid *grid, size_t row, size_t col) -> bool {
+    auto apply(Grid *grid, GridApi api, size_t row, size_t col) -> bool {
         Location cur_loc{row, col};
         Cell cur = (*grid)[cur_loc];
         if (cur.display_type != CellDisplayType::cdt_value ||
@@ -107,20 +107,21 @@ struct OneOfAwareRule {
             return false;
         }
 
-        return this->applyInner(grid, cur_loc,
+        return this->applyInner(grid, api, cur_loc,
                                 this->keeper.options_sentinel.next,
                                 Slice<CellOptions>{});
     }
 
-    auto applyInner(Grid *grid, Location cur_loc,
+    auto applyInner(Grid *grid, GridApi api, Location cur_loc,
                     LinkedList<CellOptions> *remaining_ops,
                     Slice<CellOptions> applied_ops) -> bool {
         size_t mark = this->arena.len;
         if (remaining_ops == &this->keeper.options_sentinel) {
             Cell &cell = (*grid)[cur_loc];
 
-            bool flag_work = flagPossibleCells(grid, &cell, applied_ops);
-            bool reveal_work = revealPossibleCells(grid, &cell, applied_ops);
+            bool flag_work = flagPossibleCells(grid, api, &cell, applied_ops);
+            bool reveal_work =
+                revealPossibleCells(grid, api, &cell, applied_ops);
 
             return flag_work || reveal_work;
         }
@@ -141,7 +142,7 @@ struct OneOfAwareRule {
                                            applied_ops.len + 1};
 
             bool inner_work =
-                this->applyInner(grid, cur_loc, rem->next, inner_slice);
+                this->applyInner(grid, api, cur_loc, rem->next, inner_slice);
 
             did_work = inner_work || did_work;
 
@@ -151,7 +152,7 @@ struct OneOfAwareRule {
         return did_work;
     }
 
-    auto flagPossibleCells(Grid *grid, Cell *cell,
+    auto flagPossibleCells(Grid *grid, GridApi api, Cell *cell,
                            Slice<CellOptions> applied_ops) -> bool {
         if (cell->eff_number == applied_ops.len) {
             return false;
@@ -190,7 +191,7 @@ struct OneOfAwareRule {
                     continue;
                 }
 
-                flagCell(grid, neighbor.loc);
+                api.flagCell(grid, neighbor.loc);
                 did_work = true;
             }
 
@@ -200,7 +201,7 @@ struct OneOfAwareRule {
         return false;
     }
 
-    auto revealPossibleCells(Grid *grid, Cell *cell,
+    auto revealPossibleCells(Grid *grid, GridApi api, Cell *cell,
                              Slice<CellOptions> applied_ops) -> bool {
         bool did_work = false;
 
@@ -218,7 +219,7 @@ struct OneOfAwareRule {
                     continue;
                 }
 
-                uncoverSelfAndNeighbors(grid, neighbor.loc);
+                api.uncoverSelfAndNeighbors(grid, neighbor.loc);
                 did_work = true;
             }
         }
@@ -304,9 +305,9 @@ static StrSlice rule_name = STR_SLICE("one_of_aware");
 
 auto registerRule(Arena *arena, GridSolver *solver, OneOfAwareRule *oneOfAware)
     -> void {
-    GridSolver::Rule rule =
-        makeRule(OneOfAwareRule::applyRule, OneOfAwareRule::onEpochStart,
-                 OneOfAwareRule::onEpochFinish, oneOfAware, rule_name);
+    GridSolver::Rule rule = GridSolver::Rule::from(
+        OneOfAwareRule::applyRule, OneOfAwareRule::onEpochStart,
+        OneOfAwareRule::onEpochFinish, oneOfAware, rule_name);
 
     solver->registerRule(arena, rule);
 }

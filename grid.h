@@ -4,7 +4,6 @@
 #include "dirutils.cc"
 #include "op.cc"
 #include "slice.cc"
-#include "version.cc"
 
 #include <stddef.h>
 

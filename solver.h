@@ -5,7 +5,6 @@
 #include "arena.cc"
 #include "linkedlist.cc"
 #include "strslice.cc"
-#include "version.cc"
 
 #include <assert.h>
 #include <stddef.h>
